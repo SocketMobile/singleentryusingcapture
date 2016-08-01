@@ -66,11 +66,11 @@ namespace SocketMobile
             /// </summary>
             public SynchronizationContext ContextForEvents;
 
+#if DEBUG
             /// <summary>
             /// Interface for Debug traces that can be used by the App to 
             /// troubleshoot a particular issue.
             /// </summary>
-#if DEBUG
             public CaptureHelperDebug DebugConsole;
 #endif
             /// <summary>
@@ -169,7 +169,9 @@ namespace SocketMobile
 
             /// <summary>
             /// Close the connection to Socket Mobile Companion
-            /// software
+            /// software. It's best to set the Abort property, and
+            /// upon receiving the Terminate event then it's
+            /// totally safe to Close the connection.
             /// </summary>
             /// <returns>ESKT_NOERROR in case of success, an error
             /// otherwise</returns>
@@ -198,9 +200,9 @@ namespace SocketMobile
             }
 
             /// <summary>
-            /// returns the list of connected devices
+            /// return the list of connected devices
             /// </summary>
-            /// <returns>a list of Capture Helper Devices</returns>
+            /// <returns>a list of CaptureHelperDevice</returns>
             public List<CaptureHelperDevice> GetDevicesList()
             {
                 return _devices;
@@ -1284,7 +1286,7 @@ namespace SocketMobile
             public class BluetoothAddressResult : CaptureHelper.AsyncResult
             {
                 /// <summary>
-                /// Bluetoot address of the device
+                /// Bluetoot address of the device, ie: "AA:22:33:44:55:66"
                 /// </summary>
                 public string BluetoothAddress;
             }
@@ -1363,19 +1365,19 @@ namespace SocketMobile
             public class BatteryLevelResult : CaptureHelper.AsyncResult
             {
                 /// <summary>
-                /// battery level expressed as percentile ie: 58%
+                /// battery level expressed as percentile, ie: "58%"
                 /// </summary>
                 public string Percentile;
                 /// <summary>
-                /// minimal value of the battery level range
+                /// minimal value of the battery level range, ie: 0
                 /// </summary>
                 public int MinimumLevel;
                 /// <summary>
-                /// maximal value of the battery level range
+                /// maximal value of the battery level range, ie: 100
                 /// </summary>
                 public int MaximumLevel;
                 /// <summary>
-                /// the actual battery level within the specified range
+                /// the actual battery level within the specified range, ie: 58
                 /// </summary>
                 public int CurrentLevel;
             }
