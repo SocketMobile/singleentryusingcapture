@@ -37,7 +37,7 @@
       <Private>True</Private>
     </Reference>
     <Reference Include="SocketMobile.Capture, Version=0.1.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\SocketMobile.Capture.0.1.220.0\lib\net\SocketMobile.Capture.dll</HintPath>
+      <HintPath>..\packages\SocketMobile.Capture.0.1.253.0\lib\net\SocketMobile.Capture.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="System" />

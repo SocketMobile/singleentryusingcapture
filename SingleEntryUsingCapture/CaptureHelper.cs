@@ -993,6 +993,7 @@ namespace SocketMobile
         {
             internal ICaptureDevice CaptureDevice;
             internal CaptureHelper Helper;
+            private bool opened = false;
             /// <summary>
             /// indicates if the app has the device ownership
             /// </summary>
@@ -1044,22 +1045,22 @@ namespace SocketMobile
                             deviceName = "CHS 7Xi";
                             break;
                         case DeviceType.kScanner8ci:
-                            deviceName = "CHS 8Ci";
+                            deviceName = "SocketScan S800";
                             break;
                         case DeviceType.kScanner8qi:
-                            deviceName = "CHS 8Qi";
+                            deviceName = "SocketScan S850";
                             break;
                         case DeviceType.kScanner9:
                             deviceName = "CRS 9";
                             break;
                         case DeviceType.kScannerD750:
-                            deviceName = "CHS D750";
+                            deviceName = "DuraScan D750";
                             break;
                         case DeviceType.kScannerD700:
-                            deviceName = "CHS D700";
+                            deviceName = "DuraScan D700";
                             break;
                         case DeviceType.kScannerD730:
-                            deviceName = "CHS D730";
+                            deviceName = "DuraScan D730";
                             break;
                         case DeviceType.kSoftScan:
                             deviceName = "Soft Scanner";
@@ -1188,7 +1189,9 @@ namespace SocketMobile
             /// <returns>SktErrors.ESKT_NOERROR in case of success, an error otherwise</returns>
             public Task<long> OpenAsync()
             {
-                return CaptureDevice.OpenAsync(CaptureDevice.Guid);
+                Task<long> result =  CaptureDevice.OpenAsync(CaptureDevice.Guid);
+                opened = true;
+                return result;
             }
 
             /// <summary>
@@ -1197,11 +1200,23 @@ namespace SocketMobile
             /// Closing temporary the device allows to not receive
             /// anymore any notification coming from this device, and
             /// also to re-gain device ownership after re-open it.
+            /// If this method is called when the device is actually not
+            /// opened then no error will be reported.
             /// </summary>
             /// <returns>SktErrors.ESKT_NOERROR in case of success, an error otherwise</returns>
             public Task<long> CloseAsync()
             {
-                return CaptureDevice.CloseAsync();
+                Task<long> result;
+                if (opened)
+                {
+                    opened = false;
+                    result = CaptureDevice.CloseAsync();
+                }
+                else
+                {
+                    result = Task<long>.Run(()=>((long)SktErrors.ESKT_NOERROR));
+                }
+                return result;
             }
 
             /// <summary>
