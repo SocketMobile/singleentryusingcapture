@@ -1,11 +1,11 @@
-﻿///
-/// CaptureHelper.cs
-/// 
-/// This file helps to use Capture SDK in a friendly way 
-/// by implementing the most commonly used Capture API.
-/// 
-/// (c) Socket Mobile, Inc.
-/// 
+﻿//
+// CaptureHelper.cs
+// 
+// This file helps to use Capture SDK in a friendly way 
+// by implementing the most commonly used Capture API.
+// 
+// (c) Socket Mobile, Inc.
+// 
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,6 +23,10 @@ namespace SocketMobile
 #if DEBUG
         public interface CaptureHelperDebug
         {
+            /// <summary>
+            /// print a message to the debug output window
+            /// </summary>
+            /// <param name="message"></param>
             void PrintLine(string message);
         }
 #endif
@@ -135,14 +139,20 @@ namespace SocketMobile
                 return percentile;
             }
 
+
             /// <summary>
             /// connect this CaptureHelper instance to the 
             /// Socket Mobile Companion software
             /// </summary>
+            /// <param name="appId">contains the appId ie: windows:com.mycompany.myapp</param>
+            /// <param name="developerId">contains the developer ID used to register the app, ie: 520CE559-D74D-4447-9E65-0E35512A0344</param>
+            /// <param name="appKey">contains the application app key returned from the registration ie: MC0CFB+435omgQLdmzUItnt+0nho0niSAhUAhZz/P6RoKyD/2i3Hwty7WuqtJrY=</param>
             /// <returns>ESKT_NOERROR in case of success, ESKT_UNABLEOPEN if
             /// the Socket Mobile Companion service is not responding to
             /// the open, any other error otherwise</returns>
-            public async Task<long> OpenAsync()
+            
+            public async Task<long> OpenAsync(
+                string appId, string developerId, string appKey)
             {
                 _capture = SktClassFactory.createCaptureInstance();
                 _capture.CaptureEvent += OnCaptureEvent;
@@ -152,7 +162,8 @@ namespace SocketMobile
                     DebugConsole.PrintLine("about to open Capture interface");
                 }
 #endif
-                long result = await _capture.OpenAsync("");
+                string appInfo = "{\"appId\":\"" + appId + "\", \"developerId\":\"" + developerId + "\", \"appKey\":\"" + appKey + "\"}";
+                long result = await _capture.OpenAsync(appInfo);
 #if DEBUG
                 if (DebugConsole != null)
                 {
@@ -208,6 +219,27 @@ namespace SocketMobile
                 return _devices;
             }
 
+            #region Aynchronous Result
+            /// <summary>
+            /// generic result object containing 
+            /// the result of an asynchronous operation
+            /// </summary>
+            public class AsyncResult
+            {
+                /// <summary>
+                /// contains the operation result
+                /// </summary>
+                public long Result;
+                /// <summary>
+                /// helper to check if the result is successful
+                /// </summary>
+                /// <returns>true if the result is successful, false otherwise</returns>
+                public bool IsSuccessful()
+                {
+                    return SktErrors.SKTSUCCESS(Result);
+                }
+            }
+
             /// <summary>
             /// contains the result of getting the Socket
             /// Mobile Companion software version 
@@ -255,7 +287,7 @@ namespace SocketMobile
                 /// occurs
                 /// </summary>
                 /// <returns>the string version</returns>
-                public string ToStringVersion() 
+                public string ToStringVersion()
                 {
                     if (Day != 0)
                     {
@@ -293,6 +325,65 @@ namespace SocketMobile
                     }
                 }
             }
+
+            /// <summary>
+            /// contains a string value for async methods returning a string
+            /// </summary>
+            public class StringResult : AsyncResult
+            {
+                /// <summary>
+                /// the string value of an async method.
+                /// </summary>
+                public string Value;
+            }
+
+            /// <summary>
+            /// result containing the data confirmation mode 
+            /// </summary>
+            public class DataConfirmationModeResult : AsyncResult
+            {
+                /// <summary>
+                /// Data confirmation mode with these possible values:
+                /// ICaptureProperty.Values.ConfirmationMode.kApp the App has to send a confirmation for the decoded data
+                /// ICaptureProperty.Values.ConfirmationMode.kCapture the Capture is sending a confirmation for the decoded data
+                /// ICaptureProperty.Values.ConfirmationMode.kDevice the Device (local) is sending a confirmation for the decoded data
+                /// ICaptureProperty.Values.ConfirmationMode.kOff there is no confirmation required
+                /// </summary>
+                public byte Mode;
+            }
+
+            /// <summary>
+            /// contains the result of getting the Data Confirmation Action
+            /// </summary>
+            public class DataConfirmationActionResult : AsyncResult
+            {
+                /// <summary>
+                /// Beep Action could be one of the following values:
+                /// 
+                /// ICaptureProperty.Values.DataConfirmation.kBeepGood
+                /// ICaptureProperty.Values.DataConfirmation.kBeepBad
+                /// ICaptureProperty.Values.DataConfirmation.kBeepNone
+                /// 
+                /// </summary>
+                public int Beep;
+                /// <summary>
+                /// LED Action could be one of the following values:
+                /// 
+                /// ICaptureProperty.Values.DataConfirmation.kLedGreen
+                /// ICaptureProperty.Values.DataConfirmation.kLedRed
+                /// ICaptureProperty.Values.DataConfirmation.kLedNone
+                /// </summary>
+                public int Led;
+                /// <summary>
+                /// Rumble Action could be one of the following values:
+                /// 
+                /// ICaptureProperty.Values.DataConfirmation.kRumbleGood
+                /// ICaptureProperty.Values.DataConfirmation.kRumbleBad
+                /// ICaptureProperty.Values.DataConfirmation.kRumbleNone
+                /// </summary>
+                public int Rumble;
+            }
+            #endregion
 
             #region Capture Main Object methods
             /// <summary>
@@ -332,26 +423,6 @@ namespace SocketMobile
             }
 
             /// <summary>
-            /// generic result object containing 
-            /// the result of an asynchronous operation
-            /// </summary>
-            public class AsyncResult
-            {
-                /// <summary>
-                /// contains the operation result
-                /// </summary>
-                public long Result;
-                /// <summary>
-                /// helper to check if the result is successful
-                /// </summary>
-                /// <returns>true if the result is successful, false otherwise</returns>
-                public bool IsSuccessful()
-                {
-                    return SktErrors.SKTSUCCESS(Result);
-                }
-            }
-
-            /// <summary>
             /// abort the usage of Socket Mobile Companion software
             /// which CaptureHelper will fire the Terminate event when
             /// it is perfectly safe to Close CaptureHelper connection from
@@ -388,20 +459,7 @@ namespace SocketMobile
                 AsyncResult dataConfirmationModeResult = new AsyncResult() { Result = result.Result };
                 return dataConfirmationModeResult;
             }
-            /// <summary>
-            /// result containing the data confirmation mode 
-            /// </summary>
-            public class DataConfirmationModeResult : AsyncResult
-            {
-                /// <summary>
-                /// Data confirmation mode with these possible values:
-                /// ICaptureProperty.Values.ConfirmationMode.kApp the App has to send a confirmation for the decoded data
-                /// ICaptureProperty.Values.ConfirmationMode.kCapture the Capture is sending a confirmation for the decoded data
-                /// ICaptureProperty.Values.ConfirmationMode.kDevice the Device (local) is sending a confirmation for the decoded data
-                /// ICaptureProperty.Values.ConfirmationMode.kOff there is no confirmation required
-                /// </summary>
-                public byte Mode;
-            }
+
             /// <summary>
             /// retrieve the Capture Data Confirmation Mode.
             /// The mode could be one of the following:
@@ -452,38 +510,6 @@ namespace SocketMobile
                 PropertyResult result = await _capture.SetPropertyAsync(property);
                 AsyncResult dataConfirmationActionResult = new AsyncResult() { Result = result.Result };
                 return dataConfirmationActionResult;
-            }
-
-            /// <summary>
-            /// contains the result of getting the Data Confirmation Action
-            /// </summary>
-            public class DataConfirmationActionResult: AsyncResult
-            {
-                /// <summary>
-                /// Beep Action could be one of the following values:
-                /// 
-                /// ICaptureProperty.Values.DataConfirmation.kBeepGood
-                /// ICaptureProperty.Values.DataConfirmation.kBeepBad
-                /// ICaptureProperty.Values.DataConfirmation.kBeepNone
-                /// 
-                /// </summary>
-                public int Beep;
-                /// <summary>
-                /// LED Action could be one of the following values:
-                /// 
-                /// ICaptureProperty.Values.DataConfirmation.kLedGreen
-                /// ICaptureProperty.Values.DataConfirmation.kLedRed
-                /// ICaptureProperty.Values.DataConfirmation.kLedNone
-                /// </summary>
-                public int Led;
-                /// <summary>
-                /// Rumble Action could be one of the following values:
-                /// 
-                /// ICaptureProperty.Values.DataConfirmation.kRumbleGood
-                /// ICaptureProperty.Values.DataConfirmation.kRumbleBad
-                /// ICaptureProperty.Values.DataConfirmation.kRumbleNone
-                /// </summary>
-                public int Rumble;
             }
 
             /// <summary>
@@ -705,6 +731,18 @@ namespace SocketMobile
             public event EventHandler<ButtonsStateArgs> DeviceButtonsState;
 
             /// <summary>
+            /// Argument for the Listener Started event. This event
+            /// does not have any parameter because when it is fired
+            /// it means the listener thread has started. If the listener
+            /// thread fails for whatever reason, and error ESKT_NOTHINGTOLISTEN
+            /// would be reported to the application through the Error event.
+            /// </summary>
+            public class ListenerStartedArgs: EventArgs
+            {
+
+            }
+
+            /// <summary>
             /// Arguments for the Terminate event containing an eventual 
             /// error in its result property. If that is the case then 
             /// the connection with Socket Mobile Companion software might
@@ -722,6 +760,16 @@ namespace SocketMobile
                 /// </summary>
                 public long Result;
             }
+            /// <summary>
+            /// Listener Started event fires when the Capture Helper opens
+            /// the communication with Socket Mobile Companion software
+            /// and the Socket Mobile Companion has its listener thread 
+            /// running. This event is also fired when the Socket Mobile
+            /// Companion software has its listening ports configuration 
+            /// changed confirming the success of the new configuration.
+            /// </summary>
+            public event EventHandler<ListenerStartedArgs> ListenerStarted;
+
             /// <summary>
             /// Terminate event fires when the app calls SetAbortAsync or
             /// when the communication with Socket Mobile Companion software
@@ -773,7 +821,7 @@ namespace SocketMobile
                             {
                                 // attach the device info to the capture device interface
                                 device.DeviceInfo = e.captureEvent.DeviceInfo;
-                                CaptureHelperDevice helperDevice = new CaptureHelperDevice(this, device) { HasOwnership = true };
+                                CaptureHelperDevice helperDevice = new CaptureHelperDevice(this, device, true) { HasOwnership = true };
                                 _devices.Add(helperDevice);
                                 FireDeviceArrival(helperDevice);
                             }
@@ -863,6 +911,11 @@ namespace SocketMobile
                             bool rightButton = Helper.BUTTON_ISRIGHTPRESSED(e.captureEvent.DataByte);
                             bool powerButton = Helper.BUTTON_ISPOWERPRESSED(e.captureEvent.DataByte);
                             FireDeviceButtonState(deviceFound, leftButton, middleButton, rightButton, powerButton);
+                        }
+                        break;
+                    case ICaptureEvent.Id.kListenerStarted:
+                        {
+                            FireListenerStarted();
                         }
                         break;
                     case ICaptureEvent.Id.kTerminate:
@@ -971,6 +1024,15 @@ namespace SocketMobile
                 }
             }
 
+            internal void FireListenerStarted()
+            {
+                EventHandler<ListenerStartedArgs> handler = ListenerStarted;
+                if (handler != null)
+                {
+                    handler(this, new ListenerStartedArgs());
+                }
+            }
+
             internal void FireTerminate(long result)
             {
                 EventHandler<TerminateArgs> handler = Terminate;
@@ -1007,10 +1069,11 @@ namespace SocketMobile
             /// </summary>
             public string PowerState = "";
 
-            internal CaptureHelperDevice(CaptureHelper helper, ICaptureDevice captureDevice)
+            internal CaptureHelperDevice(CaptureHelper helper, ICaptureDevice captureDevice, bool open)
             {
                 Helper = helper;
                 CaptureDevice = captureDevice;
+                opened = open;
             }
 
             /// <summary>
@@ -1159,6 +1222,22 @@ namespace SocketMobile
                 remove
                 {
                     Helper.DeviceButtonsState -= value;
+                }
+            }
+
+            /// <summary>
+            /// Terminate fires when the connection to Socket Mobile Companion software
+            /// is broken. 
+            /// </summary>
+            public event EventHandler<CaptureHelper.ListenerStartedArgs> ListenerStarted
+            {
+                add
+                {
+                    Helper.ListenerStarted += value;
+                }
+                remove
+                {
+                    Helper.ListenerStarted -= value;
                 }
             }
 
@@ -1401,7 +1480,7 @@ namespace SocketMobile
             /// retrieve the device decoded data suffix
             /// </summary>
             /// <returns>a string containing the device suffix</returns>
-            public async Task<StringResult> GetSuffixAsync()
+            public async Task<CaptureHelper.StringResult> GetSuffixAsync()
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kPostambleDevice;
@@ -1416,17 +1495,7 @@ namespace SocketMobile
                 {
                     value = "Error: " + result.Result;
                 }
-                return new StringResult() {Value = value, Result = result.Result };
-            }
-            /// <summary>
-            /// contains a string value for async methods returning a string
-            /// </summary>
-            public class StringResult : CaptureHelper.AsyncResult
-            {
-                /// <summary>
-                /// the string value of an async method.
-                /// </summary>
-                public string Value;
+                return new CaptureHelper.StringResult() {Value = value, Result = result.Result };
             }
 
             /// <summary>
@@ -1454,7 +1523,7 @@ namespace SocketMobile
             /// the prefix and a success code set to SktErrors.ESKT_NOERRROR in case of success
             /// or to an error code otherwise
             /// </returns>
-            public async Task<StringResult> GetPrefixAsync()
+            public async Task<CaptureHelper.StringResult> GetPrefixAsync()
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kPreambleDevice;
@@ -1469,7 +1538,7 @@ namespace SocketMobile
                 {
                     value = "Error: " + result.Result;
                 }
-                return new StringResult() { Value = value, Result = result.Result };
+                return new CaptureHelper.StringResult() { Value = value, Result = result.Result };
             }
 
             /// <summary>

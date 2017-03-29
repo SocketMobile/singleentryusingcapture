@@ -50,7 +50,10 @@ namespace SingleEntryUsingCapture
         private async void timerOpenCapture_Tick(object sender, EventArgs e)
         {
             timerOpenCapture.Stop();
-            long Result = await mCapture.OpenAsync();
+
+            long Result = await mCapture.OpenAsync("windows:com.socketmobile.mysuperapp", 
+                "08de99c4-5baa-481f-8547-8d0ef9724630", 
+                "MCwCFGC2SWwWCqoMXbNjAa/uAEGEtfXkAhQFtaHsUpp8O9yjDuZmsUSoxctUJQ==");
             if (SktErrors.SKTSUCCESS(Result))
             {
                 // ask for the version
