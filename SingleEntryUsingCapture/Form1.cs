@@ -51,9 +51,9 @@ namespace SingleEntryUsingCapture
         {
             timerOpenCapture.Stop();
 
-            long Result = await mCapture.OpenAsync("windows:com.socketmobile.mysuperapp", 
-                "08de99c4-5baa-481f-8547-8d0ef9724630", 
-                "MCwCFGC2SWwWCqoMXbNjAa/uAEGEtfXkAhQFtaHsUpp8O9yjDuZmsUSoxctUJQ==");
+            long Result = await mCapture.OpenAsync("windows:com.socketmobile.singleentry", 
+                "08de99c4-5baa-481f-8547-8d0ef9724630",
+                "i6tgDN2aO14WuVHMaCrq3VR4nEz+zL5dfePpNvmGeN2kZeLIWmfKmw==");
             if (SktErrors.SKTSUCCESS(Result))
             {
                 // ask for the version
