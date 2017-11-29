@@ -41,10 +41,10 @@ mCapture.DeviceRemoval += mCapture_DeviceRemoval;
 mCapture.DecodedData += mCapture_DecodedData;
 ```
 
-If the application UI needs to be updated from these handler, or in the callbacks of the Capture Helper API methods, a context can be set once also before opening Capture Helper as follow:
+If the application UI needs to be updated from these handlers, or in the callbacks of the Capture Helper API methods, a context can be set once also before opening Capture Helper as follow:
 `mCapture.ContextForEvents = WindowsFormsSynchronizationContext.Current;`
 
-This sample app uses a timer to open Capture. This is due in part to handle the case that the Socket Mobile Companion service is not running at the time of this application is trying to use and can be retried.
+This sample app uses a timer to open Capture. This is due in part to handle the case that the Socket Mobile Companion service is not running at the time of this application is trying to use it and can be retried.
 
 The scanner decoded data are received by the application by providing a decoded data handler to the Capture Helper event: `DecodedData`.
 
