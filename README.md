@@ -3,15 +3,17 @@
 ## Introduction
 This is a sample application to show how to use the Socket Mobile Capture SDK.
 
-The Socket Mobile Capture SDK is available as NuGet from NuGets.org.
+The Socket Mobile Capture SDK is available as NuGet from NuGet.org.
 
-When loading the project in Visual Studio, the Capture NuGet should restore itself from NuGets.org.
+When loading the project in Visual Studio, the Capture NuGet should restore itself from NuGet.org.
 
 The Socket Mobile Capture relies on a service running on the host in order to manage the connection to a Socket Mobile scanner.
 
-This service is called Socket Mobile Companion. If you have installed the Socket Mobile Keyboard package or the Socket Mobile Companion package, this service comes with an UI called Socket Mobile Companion UI. From that UI you can check the version and the status of the service.
+This service is called Socket Mobile Companion. If you have installed the Socket Mobile Keyboard package or the Socket Mobile Companion package, this service comes with an UI called Socket Mobile Companion UI. The version and the status of the service can be checked through this Socket Mobile Companion UI.
 
-The Socket Mobile Companion is also required when connecting a scanner for the first time to the host as it will configure the scanner during the first connection process.
+The Socket Mobile Companion UI is also required when connecting a scanner for the first time to the host as it will configure the scanner during the first connection process.
+
+Exiting the Socket Mobile Companion UI won't terminate the Socket Mobile Companion service. If a scanner is already configured to connect to the host, the Socket Mobile Companion UI is no longer required but can be used to show the scanner connection status in the tray bar, and to configure a new scanner to connect to the host during its Bluetooth pairing process.
 
 ## Connecting a Socket Mobile scanner
 In order to connect a Socket Mobile scanner to a Windows host, an initial setting should be done in order to pair and configure the scanner for a particular host.
@@ -48,7 +50,7 @@ The scanner decoded data are received by the application by providing a decoded 
 
 ## Opening Capture - Application Registration
 Opening Capture requires some application information, such as the application ID, a developer ID and the application AppKey.
-These information requires a Socket Mobile Developer account that can be created on the Socket Mobile developer portal. The application AppKey is retrieved when registering the application in the same Socket Mobile developer portal and by providing the application ID.  
+This information requires a Socket Mobile Developer account that can be created on the Socket Mobile developer portal. The application AppKey is retrieved when registering the application in the same Socket Mobile developer portal and by providing the application ID.  
 
 ## Documentation
 For more information please consult the Capture SDK documentation that can be found here: http://docs.socketmobile.com/capture-preview/csharp/en/latest/index.html
