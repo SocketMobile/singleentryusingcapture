@@ -14,6 +14,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 //1- add the SocketMobile Capture namespace
@@ -37,13 +38,13 @@ namespace SingleEntryUsingCapture
             
             // this is to handle the case of the Socket Mobile Companion 
             // being stopped for some reason
-            mCapture.Terminate+= mCapture_Terminate; 
+            mCapture.Terminate+= mCapture_Terminate;
 
             // 4- Start opening the connection to Socket Mobile Companion
             // which must be running, here it is done with a timer
             // because we restart this timer in case the Socket Mobile Companion
             // has been stopped
-            timerOpenCapture.Tick+=timerOpenCapture_Tick;
+            timerOpenCapture.Tick += timerOpenCapture_Tick;
             timerOpenCapture.Start();
         }
 
@@ -51,9 +52,9 @@ namespace SingleEntryUsingCapture
         {
             timerOpenCapture.Stop();
 
-            long Result = await mCapture.OpenAsync("windows:com.socketmobile.singleentry", 
-                "08de99c4-5baa-481f-8547-8d0ef9724630",
-                "i6tgDN2aO14WuVHMaCrq3VR4nEz+zL5dfePpNvmGeN2kZeLIWmfKmw==");
+            long Result = await mCapture.OpenAsync("windows:com.socketmobile.singleentry",
+                "BB57D8E1-F911-47BA-B510-693BE162686A",
+                "MCwCFAJIzwgOK1fYEE5KdmPOe+Lm+5x6AhR6kYJKPLvEsh8TO7jaivECRe5C9A==");
             if (SktErrors.SKTSUCCESS(Result))
             {
                 // ask for the version
