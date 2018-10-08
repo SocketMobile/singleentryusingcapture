@@ -36,9 +36,8 @@
       <HintPath>..\packages\Newtonsoft.Json.9.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="SocketMobile.Capture, Version=0.1.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\SocketMobile.Capture.1.0.45.97\lib\net\SocketMobile.Capture.dll</HintPath>
-      <Private>True</Private>
+    <Reference Include="SocketMobile.Capture, Version=1.0.396.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\SocketMobile.Capture.1.0.396.477\lib\net\SocketMobile.Capture.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
@@ -88,7 +87,7 @@
     <None Include="App.config" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
-  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
+  <!-- To modify your build process, add your task inside one of the targets below and uncomment it.
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">
   </Target>
