@@ -17,10 +17,10 @@ namespace SocketMobile
 {
     namespace Capture
     {
+#if DEBUG
         /// <summary>
         /// interface to catch the DEBUG traces in the App
         /// </summary>
-#if DEBUG
         public interface CaptureHelperDebug
         {
             /// <summary>
@@ -59,14 +59,25 @@ namespace SocketMobile
         /// If opening CaptureHelper result in an error, this might be because the
         /// Socket Mobile Companion software is either not present on the host or stopped.
         /// </summary>
-        public partial class CaptureHelper 
+        public partial class CaptureHelper
         {
             private ICapture _capture;
             private List<CaptureHelperDevice> _devices = new List<CaptureHelperDevice>();
+
+            /// <summary>
+            /// Force Capture to not use WebSocket. This is useful only on platforms that
+            /// don't support correctly WebSocket.
+            /// </summary>
+            public bool DoNotUseWebSocket;
+
             /// <summary>
             /// provides a UI Thread context in order to receive the CaptureHelper and
             /// CaptureHelperDevice event in the context of the UI thread.
-            /// By example: captureHelper.ContextForEvents = WindowsFormsSynchronizationContext.Current;
+            /// For example: captureHelper.ContextForEvents = SynchronizationContext.Current;
+			/// Setting this is optional, if left null CaptureHelper will not 
+			/// try to update the UI.
+			/// Note: Setting this MUST be done on the UI thread only. See Microsoft
+			/// documentation for SynchronizationContext.
             /// </summary>
             public SynchronizationContext ContextForEvents;
 
@@ -80,7 +91,7 @@ namespace SocketMobile
             /// <summary>
             /// the PowerState of a device
             /// </summary>
-            public enum PowerState 
+            public enum PowerState
             {
                 /// <summary>
                 /// the power state is unknown
@@ -108,6 +119,7 @@ namespace SocketMobile
             public static string ConvertPowerStateToString(PowerState state)
             {
                 string powerStateString = "Unknown";
+
                 switch (state)
                 {
                     case PowerState.Unknown:
@@ -127,18 +139,17 @@ namespace SocketMobile
             }
 
             /// <summary>
-            /// convert the Battery Level into Percentile
+            /// convert the Battery Level into Percentage
             /// </summary>
             /// <param name="min">minimum value of the battery level range</param>
             /// <param name="max">maximum value of the battery level range</param>
             /// <param name="current">the current value of the battery in that range</param>
-            /// <returns>a string with the battery level expressed in percentile</returns>
-            public static string ConvertBatteryLevelInPercentile(int min, int max, int current)
+            /// <returns>a string with the battery level expressed in Percentage</returns>
+            public static string ConvertBatteryLevelInPercentage(int min, int max, int current)
             {
-                string percentile = ((float)current / (max - min)) * 100 + "%";
-                return percentile;
+                string percentage = ((float)current / (max - min)) * 100 + "%";
+                return percentage;
             }
-
 
             /// <summary>
             /// connect this CaptureHelper instance to the 
@@ -150,11 +161,12 @@ namespace SocketMobile
             /// <returns>ESKT_NOERROR in case of success, ESKT_UNABLEOPEN if
             /// the Socket Mobile Companion service is not responding to
             /// the open, any other error otherwise</returns>
-            
-            public async Task<long> OpenAsync(
+
+            public Task<long> OpenAsync(
                 string appId, string developerId, string appKey)
             {
                 _capture = SktClassFactory.createCaptureInstance();
+                _capture.DoNotUseWebSocket = DoNotUseWebSocket;
                 _capture.CaptureEvent += OnCaptureEvent;
 #if DEBUG
                 if (DebugConsole != null)
@@ -163,19 +175,22 @@ namespace SocketMobile
                 }
 #endif
                 string appInfo = "{\"appId\":\"" + appId + "\", \"developerId\":\"" + developerId + "\", \"appKey\":\"" + appKey + "\"}";
-                long result = await _capture.OpenAsync(appInfo);
+                Task<long> openTask = _capture.OpenAsync(appInfo);
+                Task<long> resultTask = openTask.ContinueWith<long>(res => {
 #if DEBUG
-                if (DebugConsole != null)
-                {
-                    DebugConsole.PrintLine("done opening Capture interface: " + result);
-                }
+                    if (DebugConsole != null)
+                    {
+                        DebugConsole.PrintLine("done opening Capture interface: " + res.Result);
+                    }
 #endif
-                if (!SktErrors.SKTSUCCESS(result))
-                {
-                    _capture.CaptureEvent -= OnCaptureEvent;
-                    _capture = null;
-                }
-                return result;
+                    if (!SktErrors.SKTSUCCESS(res.Result))
+                    {
+                        _capture.CaptureEvent -= OnCaptureEvent;
+                        _capture = null;
+                    }
+                    return res.Result;
+                });
+                return resultTask;
             }
 
             /// <summary>
@@ -186,37 +201,47 @@ namespace SocketMobile
             /// </summary>
             /// <returns>ESKT_NOERROR in case of success, an error
             /// otherwise</returns>
-            public async Task<long> CloseAsync()
+            public Task<long> CloseAsync()
             {
-                long result = SktErrors.ESKT_NOERROR;
-                if (_capture!=null)
-                {
-#if DEBUG
-                    if(DebugConsole!=null)
+                Task<long> result = Task.Run<long>(() => {
+
+                    if (_capture != null)
                     {
-                        DebugConsole.PrintLine("about to close Capture interface");
-                    }
-#endif
-                    result = await _capture.CloseAsync();
 #if DEBUG
-                    if (DebugConsole != null)
-                    {
-                        DebugConsole.PrintLine("done closing Capture interface: " + result);
-                    }
+                        if (DebugConsole != null)
+                        {
+                            DebugConsole.PrintLine("about to close Capture interface");
+                        }
 #endif
-                    _capture.CaptureEvent -= OnCaptureEvent;
-                    _capture = null;
-                }
+                        Task<long> closeTask = _capture.CloseAsync();
+                        Task<long> resultTask = closeTask.ContinueWith<long>(res =>
+                            {
+#if DEBUG
+                                if (DebugConsole != null)
+                                {
+                                    DebugConsole.PrintLine("done closing Capture interface: " + res.Result);
+                                }
+#endif
+                                _capture.CaptureEvent -= OnCaptureEvent;
+                                _capture = null;
+                                return res.Result;
+                            });
+                        return resultTask.Result;
+                    }
+                    return SktErrors.ESKT_NOERROR;
+                });
                 return result;
             }
 
             /// <summary>
-            /// return the list of connected devices
+            /// return a shallow copy of the connected devices list. Since this list is 
+            /// initially used by CaptureHelper, adding or removing device will have no
+            /// effect.
             /// </summary>
             /// <returns>a list of CaptureHelperDevice</returns>
             public List<CaptureHelperDevice> GetDevicesList()
             {
-                return _devices;
+                return new List<CaptureHelperDevice>(_devices);
             }
 
             #region Aynchronous Result
@@ -310,6 +335,7 @@ namespace SocketMobile
                     if (Year != 0)
                     {
                         DateTime dateTime = new DateTime(Year, Month, Day, Hour, Minute, 0);
+
                         if (withTime)
                         {
                             return dateTime.ToShortDateString() + " " + dateTime.ToShortTimeString();
@@ -393,33 +419,39 @@ namespace SocketMobile
             /// <returns>VersionResult containing the version in case
             /// of success or an error code in the result member of 
             /// the VersionResult object</returns>
-            public async Task<VersionResult> GetCaptureVersionAsync()
+            public Task<VersionResult> GetCaptureVersionAsync()
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kVersion;
                 property.Type = ICaptureProperty.Types.kNone;
-                PropertyResult result = await _capture.GetPropertyAsync(property);
-                VersionResult versionResult;
-                if (result.IsSuccessful())
+                Task<PropertyResult> result = _capture.GetPropertyAsync(property);
+                Task<VersionResult> verResult = result.ContinueWith(res =>
                 {
-                    versionResult = new VersionResult() {
-                        Result = result.Result,
-                        Major = result.Property.Version.dwMajor,
-                        Middle = result.Property.Version.dwMiddle,
-                        Minor = result.Property.Version.dwMinor,
-                        Build = result.Property.Version.dwBuild,
-                        Month = result.Property.Version.wMonth,
-                        Day = result.Property.Version.wDay,
-                        Year = result.Property.Version.wYear,
-                        Hour = result.Property.Version.wHour,
-                        Minute = result.Property.Version.wMinute
-                    };
-                }
-                else
-                {
-                    versionResult = new VersionResult() { Result = result.Result };
-                }
-                return versionResult;
+                    VersionResult versionResult;
+
+                    if (res.Result.IsSuccessful())
+                    {
+                        versionResult = new VersionResult()
+                        {
+                            Result = res.Result.Result,
+                            Major = res.Result.Property.Version.dwMajor,
+                            Middle = res.Result.Property.Version.dwMiddle,
+                            Minor = res.Result.Property.Version.dwMinor,
+                            Build = res.Result.Property.Version.dwBuild,
+                            Month = res.Result.Property.Version.wMonth,
+                            Day = res.Result.Property.Version.wDay,
+                            Year = res.Result.Property.Version.wYear,
+                            Hour = res.Result.Property.Version.wHour,
+                            Minute = res.Result.Property.Version.wMinute
+                        };
+                    }
+                    else
+                    {
+                        versionResult = new VersionResult() { Result = res.Result.Result };
+                    }
+                    return versionResult;
+                });
+                return verResult;
             }
 
             /// <summary>
@@ -429,13 +461,16 @@ namespace SocketMobile
             /// Socket Mobile Companion software
             /// </summary>
             /// <returns>result of setting the Abort operation</returns>
-            public async Task<AsyncResult> SetAbortAsync()
+            public Task<AsyncResult> SetAbortAsync()
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kAbort;
                 property.Type = ICaptureProperty.Types.kNone;
-                PropertyResult result = await _capture.SetPropertyAsync(property);
-                AsyncResult abortResult = new AsyncResult() {Result = result.Result };
+                Task<PropertyResult> result = _capture.SetPropertyAsync(property);
+                Task<AsyncResult> abortResult = result.ContinueWith(res =>
+                {
+                    return new AsyncResult() { Result = res.Result.Result };
+                });
                 return abortResult;
             }
 
@@ -449,14 +484,17 @@ namespace SocketMobile
             /// </summary>
             /// <param name="mode">the mode set to one of the value describe in this method</param>
             /// <returns>result of setting the data confirmation mode</returns>
-            public async Task<AsyncResult> SetDataConfirmationModeAsync(byte mode)
+            public Task<AsyncResult> SetDataConfirmationModeAsync(byte mode)
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kDataConfirmationMode;
                 property.Type = ICaptureProperty.Types.kByte;
                 property.Byte = mode;
-                PropertyResult result = await _capture.SetPropertyAsync(property);
-                AsyncResult dataConfirmationModeResult = new AsyncResult() { Result = result.Result };
+                Task<PropertyResult> result = _capture.SetPropertyAsync(property);
+                Task<AsyncResult> dataConfirmationModeResult = result.ContinueWith(res =>
+                {
+                   return new AsyncResult() { Result = res.Result.Result };
+                });
                 return dataConfirmationModeResult;
             }
 
@@ -469,13 +507,16 @@ namespace SocketMobile
             /// ICaptureProperty.Values.ConfirmationMode.kOff there is no confirmation required
             /// </summary>
             /// <returns>the Data Confirmation Mode</returns>
-            public async Task<DataConfirmationModeResult> GetDataConfirmationModeAsync()
+            public Task<DataConfirmationModeResult> GetDataConfirmationModeAsync()
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kDataConfirmationMode;
                 property.Type = ICaptureProperty.Types.kNone;
-                PropertyResult result = await _capture.GetPropertyAsync(property);
-                DataConfirmationModeResult dataConfirmationModeResult = new DataConfirmationModeResult() { Result = result.Result, Mode = result.Property.Byte };
+                Task<PropertyResult> result = _capture.GetPropertyAsync(property);
+                Task<DataConfirmationModeResult> dataConfirmationModeResult = result.ContinueWith(res =>
+                {
+                    return new DataConfirmationModeResult() { Result = res.Result.Result, Mode = res.Result.Property.Byte };
+                });
                 return dataConfirmationModeResult;
             }
 
@@ -501,14 +542,17 @@ namespace SocketMobile
             /// <param name="led">defines the action for the LED</param>
             /// <param name="rumble">defines the action for the rumble</param>
             /// <returns>result of setting the confirmation action</returns>
-            public async Task<AsyncResult> SetDataConfirmationActionAsync(int beep, int led, int rumble)
+            public Task<AsyncResult> SetDataConfirmationActionAsync(int beep, int led, int rumble)
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kDataConfirmationAction;
                 property.Type = ICaptureProperty.Types.kUlong;
                 property.Ulong = Capture.Helper.DATACONFIRMATION(0, rumble, beep, led);
-                PropertyResult result = await _capture.SetPropertyAsync(property);
-                AsyncResult dataConfirmationActionResult = new AsyncResult() { Result = result.Result };
+                Task<PropertyResult> result = _capture.SetPropertyAsync(property);
+                Task<AsyncResult> dataConfirmationActionResult = result.ContinueWith(res =>
+                {
+                    return new AsyncResult() { Result = res.Result.Result };
+                });
                 return dataConfirmationActionResult;
             }
 
@@ -517,24 +561,44 @@ namespace SocketMobile
             /// Data Confirmation Mode is set to Capture.
             /// </summary>
             /// <returns>the Data Confirmation Action</returns>
-            public async Task<DataConfirmationActionResult> GetDataConfirmationActionAsync()
+            public Task<DataConfirmationActionResult> GetDataConfirmationActionAsync()
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kDataConfirmationAction;
                 property.Type = ICaptureProperty.Types.kNone;
-                PropertyResult result = await _capture.GetPropertyAsync(property);
-                int beep = Capture.Helper.DATACONFIRMATION_BEEP(result.Property.Ulong);
-                int led = Capture.Helper.DATACONFIRMATION_LED(result.Property.Ulong);
-                int rumble = Capture.Helper.DATACONFIRMATION_RUMBLE(result.Property.Ulong);
-                DataConfirmationActionResult dataConfirmationActionResult = 
-                    new DataConfirmationActionResult() 
-                    { 
-                        Result = result.Result, 
-                        Beep = beep,
-                        Led = led,
-                        Rumble = rumble
-                    };
-                return dataConfirmationActionResult;
+                Task<PropertyResult> propertyResult = _capture.GetPropertyAsync(property);
+                Task<DataConfirmationActionResult> result =
+                    propertyResult.ContinueWith( res => {
+                        int beep = 0;
+                        int led = 0;
+                        int rumble = 0;
+                        DataConfirmationActionResult dataConfirmationActionResult;
+                        if (res.Result.IsSuccessful())
+                        {
+                            beep = Capture.Helper.DATACONFIRMATION_BEEP(res.Result.Property.Ulong);
+                            led = Capture.Helper.DATACONFIRMATION_LED(res.Result.Property.Ulong);
+                            rumble = Capture.Helper.DATACONFIRMATION_RUMBLE(res.Result.Property.Ulong);
+                            dataConfirmationActionResult = new DataConfirmationActionResult()
+                            {
+                                Result = res.Result.Result,
+                                Beep = beep,
+                                Led = led,
+                                Rumble = rumble
+                            };
+                        }
+                        else
+                        {
+                            dataConfirmationActionResult = new DataConfirmationActionResult()
+                            {
+                                Result = res.Result.Result,
+                                Beep = beep,
+                                Led = led,
+                                Rumble = rumble
+                            };
+                        }
+                        return dataConfirmationActionResult;
+                    });
+                return result;
             }
 
             #endregion
@@ -578,7 +642,8 @@ namespace SocketMobile
                 /// </summary>
                 public CaptureHelperDevice CaptureDevice;
             }
-            
+
+            private EventHandler<DeviceArgs> deviceArrival;
             /// <summary>
             /// DeviceArrival event fires when a device
             /// connects to the host. The argument
@@ -589,8 +654,28 @@ namespace SocketMobile
             /// Since multiple apps can use Capture, an event confirming
             /// the device ownership can also be monitored.
             /// </summary>
-            public event EventHandler<DeviceArgs> DeviceArrival;
-            
+            public event EventHandler<DeviceArgs> DeviceArrival
+            {
+                add
+                {
+                    deviceArrival += value;
+                    lock (_devices)
+                    {
+                        if (_devices.Count > 0)
+                        {
+                            foreach (CaptureHelperDevice device in _devices)
+                            {
+                                OnDeviceArrival(device);
+                            }
+                        }
+                    }
+                }
+                remove
+                {
+                    deviceArrival -= value;
+                }
+            }
+
             /// <summary>
             /// DeviceRemoval event fires when a device disconnects
             /// from the host. The CaptureHelperDevice passed in argument
@@ -598,7 +683,7 @@ namespace SocketMobile
             /// this CaptureHelperDevice will fail.
             /// </summary>
             public event EventHandler<DeviceArgs> DeviceRemoval;
-            
+
             /// <summary>
             /// Arguments contains the device ownership information
             /// used for the DeviceOwnershipChange event
@@ -616,6 +701,7 @@ namespace SocketMobile
                 /// </summary>
                 public string OwnershipGuid;
             }
+            private EventHandler<DeviceOwnershipArgs> deviceOwnershipChange;
             /// <summary>
             /// DeviceOwnershipChange event fires when a particular device
             /// changes ownership. This event indicates when the app gains or
@@ -630,7 +716,33 @@ namespace SocketMobile
             /// and maybe offering a button to regain the ownership if the user
             /// really need to use the device.
             /// </summary>
-            public event EventHandler<DeviceOwnershipArgs> DeviceOwnershipChange;
+            public event EventHandler<DeviceOwnershipArgs> DeviceOwnershipChange
+            {
+                add
+                {
+                    deviceOwnershipChange += value;
+                    lock (_devices)
+                    {
+                        if (_devices.Count > 0)
+                        {
+                            foreach (CaptureHelperDevice device in _devices)
+                            {
+                                string ownership = ICaptureEvent.OWNERSHIP_LOST;
+
+                                if (device.HasOwnership)
+                                {
+                                    ownership = device.OwnershipGuid;
+                                }
+                                OnDeviceOwnership(device, device.HasOwnership, ownership);
+                            }
+                        }
+                    }
+                }
+                remove
+                {
+                    deviceOwnershipChange -= value;
+                }
+            }
 
             /// <summary>
             /// Arguments for the DecodedData event containing the reference of
@@ -737,9 +849,8 @@ namespace SocketMobile
             /// thread fails for whatever reason, and error ESKT_NOTHINGTOLISTEN
             /// would be reported to the application through the Error event.
             /// </summary>
-            public class ListenerStartedArgs: EventArgs
+            public class ListenerStartedArgs : EventArgs
             {
-
             }
 
             /// <summary>
@@ -751,7 +862,7 @@ namespace SocketMobile
             /// then the app can safely close Capture as it won't receive 
             /// any event from Capture.
             /// </summary>
-            public class TerminateArgs: EventArgs
+            public class TerminateArgs : EventArgs
             {
                 /// <summary>
                 /// contains the result of the Terminate event. If there is
@@ -782,23 +893,25 @@ namespace SocketMobile
             #region internal functions
             // receive all the events from capture and depending on the 
             // context for events, dispatch them to multiple CaptureHelper events 
-            internal async void OnCaptureEvent(object sender, ICapture.CaptureEventArgs e)
+            internal void OnCaptureEvent(object sender, ICapture.CaptureEventArgs e)
             {
                 if (ContextForEvents == null)
                 {
-                    await DoFireCaptureEventAsync(e);
+                    Task<long> result = DoFireCaptureEventAsync(e);
                 }
                 else
                 {
-                    ContextForEvents.Post(new SendOrPostCallback(async (o) =>{
+                    ContextForEvents.Post(new SendOrPostCallback( async (o) =>
+                    {
                         await DoFireCaptureEventAsync((ICapture.CaptureEventArgs)o);
-                    }),e);
+                    }), e);
                 }
             }
 
             internal async Task<long> DoFireCaptureEventAsync(ICapture.CaptureEventArgs e)
             {
                 long result = SktErrors.ESKT_NOERROR;
+
                 switch (e.captureEvent.EventID)
                 {
                     case ICaptureEvent.Id.kDeviceArrival:
@@ -810,39 +923,51 @@ namespace SocketMobile
                                 DebugConsole.PrintLine("about to open the Capture Device " + e.captureEvent.DeviceInfo.Guid);
                             }
 #endif
-                            result = await device.OpenAsync(e.captureEvent.DeviceInfo.Guid);
+                            long resultOpen = await device.OpenAsync(e.captureEvent.DeviceInfo.Guid);
 #if DEBUG
                             if (DebugConsole != null)
                             {
                                 DebugConsole.PrintLine("done opening the Capture Device " + e.captureEvent.DeviceInfo.Guid + " : " + result);
                             }
 #endif
-                            if (SktErrors.SKTSUCCESS(result))
+                            if (SktErrors.SKTSUCCESS(resultOpen))
                             {
                                 // attach the device info to the capture device interface
-                                device.DeviceInfo = e.captureEvent.DeviceInfo;
-                                CaptureHelperDevice helperDevice = new CaptureHelperDevice(this, device, true) { HasOwnership = true };
-                                _devices.Add(helperDevice);
-                                FireDeviceArrival(helperDevice);
+                                lock (_devices)
+                                {
+                                    device.DeviceInfo = e.captureEvent.DeviceInfo;
+                                    CaptureHelperDevice helperDevice = new CaptureHelperDevice(this, device, true) { HasOwnership = true };
+                                    _devices.Add(helperDevice);
+                                    OnDeviceArrival(helperDevice);
+                                }
                             }
                             else
                             {
-                                FireError(result, "Error while opening the device " + e.captureEvent.DeviceInfo.Name);
+                                OnError(resultOpen, "Error while opening the device " + e.captureEvent.DeviceInfo.Name);
                             }
                         }
                         break;
                     case ICaptureEvent.Id.kDeviceRemoval:
                         {
-                            CaptureHelperDevice deviceFound = _devices.Find(device => device.GetDeviceInfo().Guid == e.captureEvent.DeviceInfo.Guid);
+                            CaptureHelperDevice deviceFound = null;
+
+                            lock (_devices)
+                            {
+                                deviceFound = _devices.Find(device => device.GetDeviceInfo().Guid == e.captureEvent.DeviceInfo.Guid);
+
+                                if (deviceFound != null)
+                                {
+                                    _devices.Remove(deviceFound);
+                                }
+                            }
+#if DEBUG
+                            if (DebugConsole != null)
+                            {
+                                DebugConsole.PrintLine("about to close the Capture Device " + e.captureEvent.DeviceInfo.Guid);
+                            }
+#endif
                             if (deviceFound != null)
                             {
-                                _devices.Remove(deviceFound);
-#if DEBUG
-                                if (DebugConsole != null)
-                                {
-                                    DebugConsole.PrintLine("about to close the Capture Device " + e.captureEvent.DeviceInfo.Guid);
-                                }
-#endif
                                 result = await deviceFound.CloseAsync();
 #if DEBUG
                                 if (DebugConsole != null)
@@ -852,124 +977,153 @@ namespace SocketMobile
 #endif
                                 if (SktErrors.SKTSUCCESS(result))
                                 {
-                                    FireDeviceRemoval(deviceFound);
+                                    if (deviceFound != null)
+                                    {
+                                        OnDeviceRemoval(deviceFound);
+                                    }
                                 }
                                 else
                                 {
-                                    FireError(result, "Error closing the Capture device " + e.captureEvent.DeviceInfo.Name);
+                                    OnError(result, "Error closing the Capture device " + e.captureEvent.DeviceInfo.Name);
                                 }
-
                             }
                         }
                         break;
                     case ICaptureEvent.Id.kDeviceOwnership:
                         {
-                            CaptureHelperDevice deviceFound = _devices.Find(device => device.GetDeviceInfo().Guid == e.captureDevice.Guid);
-                            if (deviceFound != null)
+                            lock (_devices)
                             {
-                                bool hasOwnership = !(e.captureEvent.DataString == ICaptureEvent.OWNERSHIP_LOST);
-                                deviceFound.HasOwnership = hasOwnership;
-                                FireDeviceOwnership(deviceFound, hasOwnership, e.captureEvent.DataString);
+                                CaptureHelperDevice deviceFound = _devices.Find(device => device.GetDeviceInfo().Guid == e.captureDevice.Guid);
+
+                                if (deviceFound != null)
+                                {
+                                    bool hasOwnership = !(e.captureEvent.DataString == ICaptureEvent.OWNERSHIP_LOST);
+                                    deviceFound.HasOwnership = hasOwnership;
+                                    if (hasOwnership)
+                                    {
+                                        deviceFound.OwnershipGuid = e.captureEvent.DataString;
+                                    }
+                                    OnDeviceOwnership(deviceFound, hasOwnership, e.captureEvent.DataString);
+                                }
                             }
                         }
                         break;
                     case ICaptureEvent.Id.kDecodedData:
                         {
-                            CaptureHelperDevice deviceFound = _devices.Find(device => device.GetDeviceInfo().Guid == e.captureDevice.Guid);
-                            if (deviceFound != null)
+                            lock (_devices)
                             {
-                                FireDecodedData(deviceFound, e.captureEvent.DataDecodedData);
+                                CaptureHelperDevice deviceFound = _devices.Find(device => device.GetDeviceInfo().Guid == e.captureDevice.Guid);
+
+                                if (deviceFound != null)
+                                {
+                                    OnDecodedData(deviceFound, e.captureEvent.DataDecodedData);
+                                }
                             }
                         }
                         break;
                     case ICaptureEvent.Id.kError:
                         {
-                            FireError(e.captureEvent.DataLong, "receive an error from Socket Mobile Companion Service");
+                            OnError(e.captureEvent.DataLong, "receive an error from Socket Mobile Companion Service");
                         }
                         break;
                     case ICaptureEvent.Id.kPower:
                         {
-                            CaptureHelperDevice deviceFound = _devices.Find(device => device.GetDeviceInfo().Guid == e.captureDevice.Guid);
-                            PowerState state = (PowerState)Helper.POWER_GETSTATE(e.captureEvent.DataLong);
-                            FireDevicePowerState(deviceFound, state);
+                            lock (_devices)
+                            {
+                                CaptureHelperDevice deviceFound = _devices.Find(device => device.GetDeviceInfo().Guid == e.captureDevice.Guid);
+                                PowerState state = (PowerState)Helper.POWER_GETSTATE(e.captureEvent.DataLong);
+                                OnDevicePowerState(deviceFound, state);
+                            }
                         }
                         break;
                     case ICaptureEvent.Id.kBatteryLevel:
                         {
-                            CaptureHelperDevice deviceFound = _devices.Find(device => device.GetDeviceInfo().Guid == e.captureDevice.Guid);
-                            int min = Helper.BATTERY_GETMINLEVEL(e.captureEvent.DataLong);
-                            int max = Helper.BATTERY_GETMAXLEVEL(e.captureEvent.DataLong);
-                            int current = Helper.BATTERY_GETCURLEVEL(e.captureEvent.DataLong);
-                            FireDeviceBatteryLevel(deviceFound, min, max, current);
+                            lock (_devices)
+                            {
+                                CaptureHelperDevice deviceFound = _devices.Find(device => device.GetDeviceInfo().Guid == e.captureDevice.Guid);
+                                int min = Helper.BATTERY_GETMINLEVEL(e.captureEvent.DataLong);
+                                int max = Helper.BATTERY_GETMAXLEVEL(e.captureEvent.DataLong);
+                                int current = Helper.BATTERY_GETCURLEVEL(e.captureEvent.DataLong);
+                                OnDeviceBatteryLevel(deviceFound, min, max, current);
+                            }
                         }
                         break;
                     case ICaptureEvent.Id.kButtons:
                         {
-                            CaptureHelperDevice deviceFound = _devices.Find(device => device.GetDeviceInfo().Guid == e.captureDevice.Guid);
-                            bool leftButton = Helper.BUTTON_ISLEFTPRESSED(e.captureEvent.DataByte);
-                            bool middleButton = Helper.BUTTON_ISMIDDLEPRESSED(e.captureEvent.DataByte);
-                            bool rightButton = Helper.BUTTON_ISRIGHTPRESSED(e.captureEvent.DataByte);
-                            bool powerButton = Helper.BUTTON_ISPOWERPRESSED(e.captureEvent.DataByte);
-                            FireDeviceButtonState(deviceFound, leftButton, middleButton, rightButton, powerButton);
+                            lock (_devices)
+                            {
+                                CaptureHelperDevice deviceFound = _devices.Find(device => device.GetDeviceInfo().Guid == e.captureDevice.Guid);
+                                bool leftButton = Helper.BUTTON_ISLEFTPRESSED(e.captureEvent.DataByte);
+                                bool middleButton = Helper.BUTTON_ISMIDDLEPRESSED(e.captureEvent.DataByte);
+                                bool rightButton = Helper.BUTTON_ISRIGHTPRESSED(e.captureEvent.DataByte);
+                                bool powerButton = Helper.BUTTON_ISPOWERPRESSED(e.captureEvent.DataByte);
+                                OnDeviceButtonState(deviceFound, leftButton, middleButton, rightButton, powerButton);
+                            }
                         }
                         break;
                     case ICaptureEvent.Id.kListenerStarted:
                         {
-                            FireListenerStarted();
+                            OnListenerStarted();
                         }
                         break;
                     case ICaptureEvent.Id.kTerminate:
                         {
-                            FireTerminate(e.captureEvent.DataLong);
+                            OnTerminate(e.captureEvent.DataLong);
                         }
                         break;
                 }
                 return result;
             }
 
-            internal void FireError(long result, string message)
+            internal void OnError(long result, string message)
             {
                 EventHandler<ErrorEventArgs> handler = Errors;
+
                 if (handler != null)
                 {
                     handler(this, new ErrorEventArgs() { Result = result, Message = message });
                 }
             }
 
-            internal void FireDeviceArrival(CaptureHelperDevice device)
+            internal void OnDeviceArrival(CaptureHelperDevice device)
             {
-                EventHandler<DeviceArgs> handler = DeviceArrival;
+                EventHandler<DeviceArgs> handler = deviceArrival;
+
                 if (handler != null)
                 {
                     handler(this, new DeviceArgs() { CaptureDevice = device });
                 }
             }
 
-            internal void FireDeviceRemoval(CaptureHelperDevice device)
+            internal void OnDeviceRemoval(CaptureHelperDevice device)
             {
                 EventHandler<DeviceArgs> handler = DeviceRemoval;
+
                 if (handler != null)
                 {
                     handler(this, new DeviceArgs() { CaptureDevice = device });
                 }
             }
 
-            internal void FireDeviceOwnership(CaptureHelperDevice device, bool hasOwnership, string ownershipGuid)
+            internal void OnDeviceOwnership(CaptureHelperDevice device, bool hasOwnership, string ownershipGuid)
             {
-                EventHandler<DeviceOwnershipArgs> handler = DeviceOwnershipChange;
+                EventHandler<DeviceOwnershipArgs> handler = deviceOwnershipChange;
+
                 if (handler != null)
                 {
-                    handler(this, new DeviceOwnershipArgs() 
-                        { CaptureDevice = device, 
-                           HasOwnership = hasOwnership, 
-                           OwnershipGuid = ownershipGuid  
-                        });
+                    handler(this, new DeviceOwnershipArgs()
+                    {
+                        CaptureDevice = device,
+                        HasOwnership = hasOwnership,
+                        OwnershipGuid = ownershipGuid
+                    });
                 }
             }
 
-            internal void FireDecodedData(CaptureHelperDevice device, ICaptureDecodedData data)
+            internal void OnDecodedData(CaptureHelperDevice device, ICaptureDecodedData data)
             {
                 EventHandler<DecodedDataArgs> handler = DecodedData;
+
                 if (handler != null)
                 {
                     handler(this, new DecodedDataArgs()
@@ -980,9 +1134,10 @@ namespace SocketMobile
                 }
             }
 
-            internal void FireDevicePowerState(CaptureHelperDevice device, PowerState state)
+            internal void OnDevicePowerState(CaptureHelperDevice device, PowerState state)
             {
                 EventHandler<PowerStateArgs> handler = DevicePowerState;
+
                 if (handler != null)
                 {
                     handler(this, new PowerStateArgs()
@@ -993,9 +1148,10 @@ namespace SocketMobile
                 }
             }
 
-            internal void FireDeviceBatteryLevel(CaptureHelperDevice device, int min, int max, int current)
+            internal void OnDeviceBatteryLevel(CaptureHelperDevice device, int min, int max, int current)
             {
                 EventHandler<BatteryLevelArgs> handler = DeviceBatteryLevel;
+
                 if (handler != null)
                 {
                     handler(this, new BatteryLevelArgs()
@@ -1008,9 +1164,10 @@ namespace SocketMobile
                 }
             }
 
-            internal void FireDeviceButtonState(CaptureHelperDevice device, bool leftButtonPress, bool middleButtonPress, bool rightButton, bool powerButton)
+            internal void OnDeviceButtonState(CaptureHelperDevice device, bool leftButtonPress, bool middleButtonPress, bool rightButton, bool powerButton)
             {
                 EventHandler<ButtonsStateArgs> handler = DeviceButtonsState;
+
                 if (handler != null)
                 {
                     handler(this, new ButtonsStateArgs()
@@ -1024,19 +1181,21 @@ namespace SocketMobile
                 }
             }
 
-            internal void FireListenerStarted()
+            internal void OnListenerStarted()
             {
                 EventHandler<ListenerStartedArgs> handler = ListenerStarted;
+
                 if (handler != null)
                 {
                     handler(this, new ListenerStartedArgs());
                 }
             }
 
-            internal void FireTerminate(long result)
+            internal void OnTerminate(long result)
             {
                 EventHandler<TerminateArgs> handler = Terminate;
-                if(handler != null)
+
+                if (handler != null)
                 {
                     handler(this, new TerminateArgs() { Result = result });
                 }
@@ -1053,8 +1212,8 @@ namespace SocketMobile
         /// </summary>
         public partial class CaptureHelperDevice
         {
-            internal ICaptureDevice CaptureDevice;
-            internal CaptureHelper Helper;
+            private ICaptureDevice CaptureDevice;
+            private CaptureHelper Helper;
             private bool opened = false;
             /// <summary>
             /// indicates if the app has the device ownership
@@ -1069,10 +1228,18 @@ namespace SocketMobile
             /// </summary>
             public string PowerState = "";
 
+            /// <summary>
+            /// contains the ownership GUID assigned to this device,
+            /// it does not mean the application has the ownership
+            /// for this device. For that checking the hasOwnership flag 
+            /// will confirm to the application it has the device ownership. 
+            /// </summary>
+            public string OwnershipGuid { get; set; }
+
             internal CaptureHelperDevice(CaptureHelper helper, ICaptureDevice captureDevice, bool open)
             {
                 Helper = helper;
-                CaptureDevice = captureDevice;
+                this.CaptureDevice = captureDevice;
                 opened = open;
             }
 
@@ -1093,6 +1260,7 @@ namespace SocketMobile
                 get
                 {
                     string deviceName = "Unknown device";
+
                     switch (CaptureDevice.DeviceInfo.Type)
                     {
                         case DeviceType.kNone:
@@ -1113,17 +1281,44 @@ namespace SocketMobile
                         case DeviceType.kScanner8qi:
                             deviceName = "SocketScan S850";
                             break;
+                        case DeviceType.kScannerS840:
+                            deviceName = "SocketScan S840";
+                            break;
                         case DeviceType.kScanner9:
                             deviceName = "CRS 9";
-                            break;
-                        case DeviceType.kScannerD750:
-                            deviceName = "DuraScan D750";
                             break;
                         case DeviceType.kScannerD700:
                             deviceName = "DuraScan D700";
                             break;
                         case DeviceType.kScannerD730:
                             deviceName = "DuraScan D730";
+                            break;
+                        case DeviceType.kScannerD740:
+                            deviceName = "DuraScan D740";
+                            break;
+                        case DeviceType.kScannerD750:
+                            deviceName = "DuraScan D750";
+                            break;
+                        case DeviceType.kScannerD760:
+                            deviceName = "DuraScan D750";
+                            break;
+                        case DeviceType.kScannerS700:
+                            deviceName = "SocketScan S700";
+                            break;
+                        case DeviceType.kScannerS730:
+                            deviceName = "SocketScan S730";
+                            break;
+                        case DeviceType.kScannerS740:
+                            deviceName = "SocketScan S740";
+                            break;
+                        case DeviceType.kScannerS750:
+                            deviceName = "SocketScan S750";
+                            break;
+                        case DeviceType.kScannerS860:
+                            deviceName = "SocketScan S860";
+                            break;
+                        case DeviceType.kScannerD790:
+                            deviceName = "DuraScan D790";
                             break;
                         case DeviceType.kSoftScan:
                             deviceName = "Soft Scanner";
@@ -1268,7 +1463,7 @@ namespace SocketMobile
             /// <returns>SktErrors.ESKT_NOERROR in case of success, an error otherwise</returns>
             public Task<long> OpenAsync()
             {
-                Task<long> result =  CaptureDevice.OpenAsync(CaptureDevice.Guid);
+                Task<long> result = CaptureDevice.OpenAsync(CaptureDevice.Guid);
                 opened = true;
                 return result;
             }
@@ -1286,6 +1481,7 @@ namespace SocketMobile
             public Task<long> CloseAsync()
             {
                 Task<long> result;
+
                 if (opened)
                 {
                     opened = false;
@@ -1293,7 +1489,7 @@ namespace SocketMobile
                 }
                 else
                 {
-                    result = Task<long>.Run(()=>((long)SktErrors.ESKT_NOERROR));
+                    result = Task<long>.Run(() => ((long)SktErrors.ESKT_NOERROR));
                 }
                 return result;
             }
@@ -1302,13 +1498,17 @@ namespace SocketMobile
             /// Retrieves the device friendly name
             /// </summary>
             /// <returns>FriendlyName result containing the friendly name or an error in case of failure</returns>
-            public async Task<FriendlyNameResult> GetFriendlyNameAsync()
+            public Task<FriendlyNameResult> GetFriendlyNameAsync()
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kFriendlyNameDevice;
                 property.Type = ICaptureProperty.Types.kNone;
-                PropertyResult result = await CaptureDevice.GetPropertyAsync(property);
-                return new FriendlyNameResult() { Result = result.Result, FriendlyName = result.Property.String };
+                Task<PropertyResult> resultGetProperty = CaptureDevice.GetPropertyAsync(property);
+                Task<FriendlyNameResult> result = resultGetProperty.ContinueWith(res =>
+                {
+                    return new FriendlyNameResult() { Result = res.Result.Result, FriendlyName = res.Result.Property.String };
+                });
+                return result;
             }
             /// <summary>
             /// results for getting the device friendly name
@@ -1325,14 +1525,18 @@ namespace SocketMobile
             /// </summary>
             /// <param name="friendlyName">the new friendly name</param>
             /// <returns>AsyncResult contains the result of changing the friendly name</returns>
-            public async Task<CaptureHelper.AsyncResult> SetFriendlyNameAsync(string friendlyName)
+            public Task<CaptureHelper.AsyncResult> SetFriendlyNameAsync(string friendlyName)
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kFriendlyNameDevice;
                 property.Type = ICaptureProperty.Types.kString;
                 property.String = friendlyName;
-                PropertyResult result = await CaptureDevice.SetPropertyAsync(property);
-                return new CaptureHelper.AsyncResult() { Result = result.Result};
+                Task<PropertyResult> resultSetProperty = CaptureDevice.SetPropertyAsync(property);
+                Task<CaptureHelper.AsyncResult> result = resultSetProperty.ContinueWith(res =>
+                {
+                    return new CaptureHelper.AsyncResult() { Result = res.Result.Result };
+                });
+                return result;
             }
 
             /// <summary>
@@ -1342,37 +1546,42 @@ namespace SocketMobile
             /// </summary>
             /// <param name="separator">optional separator of each Bluetooth Address members</param>
             /// <returns>BluetoothAddressResult containing the Bluetooth Address or an error in its result property.</returns>
-            public async Task<BluetoothAddressResult> GetBluetoothAddressAsync(string separator = ":")
+            public Task<BluetoothAddressResult> GetBluetoothAddressAsync(string separator = ":")
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kBluetoothAddressDevice;
                 property.Type = ICaptureProperty.Types.kNone;
-                PropertyResult result = await CaptureDevice.GetPropertyAsync(property);
-                string bluetoothAddress = "";
-                if (result.IsSuccessful())
+                Task<PropertyResult> resultGetProperty = CaptureDevice.GetPropertyAsync(property);
+                Task<BluetoothAddressResult> result = resultGetProperty.ContinueWith(res =>
                 {
-                    if (result.Property.Type == ICaptureProperty.Types.kArray)
+                    string bluetoothAddress = "";
+
+                    if (res.Result.IsSuccessful())
                     {
-                        foreach (byte val in result.Property.Array)
+                        if (res.Result.Property.Type == ICaptureProperty.Types.kArray)
                         {
-                            if (bluetoothAddress.Length > 0)
+                            foreach (byte val in res.Result.Property.Array)
                             {
-                                bluetoothAddress += separator;
+                                if (bluetoothAddress.Length > 0)
+                                {
+                                    bluetoothAddress += separator;
+                                }
+                                bluetoothAddress += val.ToString("X2");
                             }
-                            bluetoothAddress += val.ToString("X2");
+                        }
+                        else
+                        {
+                            res.Result.Result = SktErrors.ESKT_INVALIDOPERATION;
+                            bluetoothAddress = "Error: " + res.Result.Result + ", property type unexpected";
                         }
                     }
                     else
                     {
-                        result.Result = SktErrors.ESKT_INVALIDOPERATION;
-                        bluetoothAddress = "Error: " + result.Result + ", property type unexpected";
+                        bluetoothAddress = "Error: " + res.Result.Result;
                     }
-                }
-                else
-                {
-                    bluetoothAddress = "Error: " + result.Result;
-                }
-                return new BluetoothAddressResult() { Result = result.Result, BluetoothAddress = bluetoothAddress };
+                    return new BluetoothAddressResult() { Result = res.Result.Result, BluetoothAddress = bluetoothAddress };
+                });
+                return result;
             }
             /// <summary>
             /// contains the device Bluetooth address and the result code
@@ -1380,7 +1589,7 @@ namespace SocketMobile
             public class BluetoothAddressResult : CaptureHelper.AsyncResult
             {
                 /// <summary>
-                /// Bluetoot address of the device, ie: "AA:22:33:44:55:66"
+                /// Bluetooth address of the device, ie: "AA:22:33:44:55:66"
                 /// </summary>
                 public string BluetoothAddress;
             }
@@ -1388,23 +1597,28 @@ namespace SocketMobile
             /// retrieve the device power state
             /// </summary>
             /// <returns>PowerState</returns>
-            public async Task<PowerStateResult> GetPowerStateAsync()
+            public Task<PowerStateResult> GetPowerStateAsync()
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kPowerStateDevice;
                 property.Type = ICaptureProperty.Types.kNone;
-                PropertyResult result = await CaptureDevice.GetPropertyAsync(property);
-                string powerState = "Unknown";
-                CaptureHelper.PowerState state = (CaptureHelper.PowerState)Capture.Helper.POWER_GETSTATE(result.Property.Ulong);
-                if (result.IsSuccessful())
-                {
-                    powerState = CaptureHelper.ConvertPowerStateToString(state);
-                }
-                else
-                {
-                    powerState = "Error: " + result.Result;
-                }
-                return new PowerStateResult() { Result = result.Result, PowerState = powerState, State = state };
+                Task<PropertyResult> resultGetProperty = CaptureDevice.GetPropertyAsync(property);
+                Task<PowerStateResult> result = resultGetProperty.ContinueWith(res =>
+               {
+                   string powerState = "Unknown";
+                   CaptureHelper.PowerState state = (CaptureHelper.PowerState)Capture.Helper.POWER_GETSTATE(res.Result.Property.Ulong);
+
+                   if (res.Result.IsSuccessful())
+                   {
+                       powerState = CaptureHelper.ConvertPowerStateToString(state);
+                   }
+                   else
+                   {
+                       powerState = "Error: " + res.Result.Result;
+                   }
+                   return new PowerStateResult() { Result = res.Result.Result, PowerState = powerState, State = state };
+               });
+                return result;
             }
             /// <summary>
             /// contains the power state result and the success code of getting the power state.
@@ -1424,33 +1638,40 @@ namespace SocketMobile
             /// retrieve the device battery level.
             /// </summary>
             /// <returns>the battery level</returns>
-            public async Task<BatteryLevelResult> GetBatteryLevelAsync()
+            public Task<BatteryLevelResult> GetBatteryLevelAsync()
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kBatteryLevelDevice;
                 property.Type = ICaptureProperty.Types.kNone;
-                PropertyResult result = await CaptureDevice.GetPropertyAsync(property);
-                int minLevel = 0;
-                int maxLevel = 0;
-                int curLevel = 0;
-                string percentile = "";
-                if(result.IsSuccessful()){
-                    minLevel = Capture.Helper.BATTERY_GETMINLEVEL(result.Property.Ulong);
-                    maxLevel = Capture.Helper.BATTERY_GETMAXLEVEL(result.Property.Ulong);
-                    curLevel = Capture.Helper.BATTERY_GETCURLEVEL(result.Property.Ulong);
-                    percentile = CaptureHelper.ConvertBatteryLevelInPercentile(minLevel, maxLevel, curLevel);
-                }
-                else{
-                    percentile = "Error: "+ result.Result;
-                }
-                return new BatteryLevelResult() 
+                Task<PropertyResult> resultGetProperty = CaptureDevice.GetPropertyAsync(property);
+                Task<BatteryLevelResult> result = resultGetProperty.ContinueWith(res =>
+                {
+                    int minLevel = 0;
+                    int maxLevel = 0;
+                    int curLevel = 0;
+                    string percentage = "";
+
+                    if (res.Result.IsSuccessful())
                     {
-                        Percentile = percentile, 
-                        MinimumLevel = minLevel, 
-                        MaximumLevel = maxLevel, 
-                        CurrentLevel = curLevel, 
-                        Result = result.Result 
+                        minLevel = Capture.Helper.BATTERY_GETMINLEVEL(res.Result.Property.Ulong);
+                        maxLevel = Capture.Helper.BATTERY_GETMAXLEVEL(res.Result.Property.Ulong);
+                        curLevel = Capture.Helper.BATTERY_GETCURLEVEL(res.Result.Property.Ulong);
+                        percentage = CaptureHelper.ConvertBatteryLevelInPercentage(minLevel, maxLevel, curLevel);
+                    }
+                    else
+                    {
+                        percentage = "Error: " + res.Result.Result;
+                    }
+                    return new BatteryLevelResult()
+                    {
+                        Percentage = percentage,
+                        MinimumLevel = minLevel,
+                        MaximumLevel = maxLevel,
+                        CurrentLevel = curLevel,
+                        Result = res.Result.Result
                     };
+                });
+                return result;
             }
             /// <summary>
             /// contains the battery level range and current level as well as 
@@ -1459,9 +1680,9 @@ namespace SocketMobile
             public class BatteryLevelResult : CaptureHelper.AsyncResult
             {
                 /// <summary>
-                /// battery level expressed as percentile, ie: "58%"
+                /// battery level expressed as percentage, ie: "58%"
                 /// </summary>
-                public string Percentile;
+                public string Percentage;
                 /// <summary>
                 /// minimal value of the battery level range, ie: 0
                 /// </summary>
@@ -1480,22 +1701,27 @@ namespace SocketMobile
             /// retrieve the device decoded data suffix
             /// </summary>
             /// <returns>a string containing the device suffix</returns>
-            public async Task<CaptureHelper.StringResult> GetSuffixAsync()
+            public Task<CaptureHelper.StringResult> GetSuffixAsync()
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kPostambleDevice;
                 property.Type = ICaptureProperty.Types.kNone;
-                PropertyResult result = await CaptureDevice.GetPropertyAsync(property);
-                string value = "";
-                if (result.IsSuccessful())
+                Task<PropertyResult> resultGetProperty = CaptureDevice.GetPropertyAsync(property);
+                Task<CaptureHelper.StringResult> result = resultGetProperty.ContinueWith(res =>
                 {
-                    value = result.Property.String;
-                }
-                else
-                {
-                    value = "Error: " + result.Result;
-                }
-                return new CaptureHelper.StringResult() {Value = value, Result = result.Result };
+                    string value = "";
+
+                    if (res.Result.IsSuccessful())
+                    {
+                        value = res.Result.Property.String;
+                    }
+                    else
+                    {
+                        value = "Error: " + res.Result.Result;
+                    }
+                    return new CaptureHelper.StringResult() { Value = value, Result = res.Result.Result };
+                });
+                return result;
             }
 
             /// <summary>
@@ -1506,14 +1732,18 @@ namespace SocketMobile
             /// a result with a success code set to SktErrors.ESKT_NOERROR in case of success or
             /// to an error otherwise
             /// </returns>
-            public async Task<CaptureHelper.AsyncResult> SetSuffixAsync(string suffix)
+            public Task<CaptureHelper.AsyncResult> SetSuffixAsync(string suffix)
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kPostambleDevice;
                 property.Type = ICaptureProperty.Types.kString;
                 property.String = suffix;
-                PropertyResult result = await CaptureDevice.SetPropertyAsync(property);
-                return new CaptureHelper.AsyncResult() { Result = result.Result };
+                Task<PropertyResult> resultSetProperty = CaptureDevice.SetPropertyAsync(property);
+                Task<CaptureHelper.AsyncResult> result = resultSetProperty.ContinueWith(res =>
+                {
+                    return new CaptureHelper.AsyncResult() { Result = res.Result.Result };
+                });
+                return result;
             }
 
             /// <summary>
@@ -1523,22 +1753,27 @@ namespace SocketMobile
             /// the prefix and a success code set to SktErrors.ESKT_NOERRROR in case of success
             /// or to an error code otherwise
             /// </returns>
-            public async Task<CaptureHelper.StringResult> GetPrefixAsync()
+            public Task<CaptureHelper.StringResult> GetPrefixAsync()
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kPreambleDevice;
                 property.Type = ICaptureProperty.Types.kNone;
-                PropertyResult result = await CaptureDevice.GetPropertyAsync(property);
-                string value = "";
-                if (result.IsSuccessful())
+                Task<PropertyResult> resultGetProperty = CaptureDevice.GetPropertyAsync(property);
+                Task<CaptureHelper.StringResult> result = resultGetProperty.ContinueWith(res =>
                 {
-                    value = result.Property.String;
-                }
-                else
-                {
-                    value = "Error: " + result.Result;
-                }
-                return new CaptureHelper.StringResult() { Value = value, Result = result.Result };
+                    string value = "";
+
+                    if (res.Result.IsSuccessful())
+                    {
+                        value = res.Result.Property.String;
+                    }
+                    else
+                    {
+                        value = "Error: " + res.Result.Result;
+                    }
+                    return new CaptureHelper.StringResult() { Value = value, Result = res.Result.Result };
+                });
+                return result;
             }
 
             /// <summary>
@@ -1549,13 +1784,17 @@ namespace SocketMobile
             /// a result code set to SktErrors.ESKT_NOERROR in case of success or to 
             /// an error otherwise
             /// </returns>
-            public async Task<CaptureHelper.AsyncResult> SetPrefixAsync(string prefix)
+            public Task<CaptureHelper.AsyncResult> SetPrefixAsync(string prefix)
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kPreambleDevice;
                 property.Type = ICaptureProperty.Types.kNone;
-                PropertyResult result = await CaptureDevice.SetPropertyAsync(property);
-                return new CaptureHelper.AsyncResult() { Result = result.Result };
+                Task<PropertyResult> resultSetProperty = CaptureDevice.SetPropertyAsync(property);
+                Task<CaptureHelper.AsyncResult> result = resultSetProperty.ContinueWith(res =>
+                {
+                    return new CaptureHelper.AsyncResult() { Result = res.Result.Result };
+                });
+                return result;
             }
 
             /// <summary>
@@ -1565,55 +1804,57 @@ namespace SocketMobile
             /// the notifications configuration with a result code set to SktErrors.ESKT_NOERROR in case 
             /// of success or to an error otherwise
             /// </returns>
-            public async Task<NotificationsResult> GetNotificationsAsync()
+            public Task<NotificationsResult> GetNotificationsAsync()
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kNotificationsDevice;
                 property.Type = ICaptureProperty.Types.kNone;
-                PropertyResult result = await CaptureDevice.GetPropertyAsync(property);
-                bool batteryLevel = false;
-                bool powerButtonPress = false;
-                bool powerButtonRelease = false;
-                bool powerState = false;
-                bool scanButtonPress = false;
-                bool scanButtonRelease = false;
-                
-                if (result.IsSuccessful())
+                Task<PropertyResult> resultGetProperty = CaptureDevice.GetPropertyAsync(property);
+                Task<NotificationsResult> result = resultGetProperty.ContinueWith(res =>
                 {
-                    if ((result.Property.Ulong & ICaptureProperty.Values.Notifications.kBatteryLevelChange)
-                        == ICaptureProperty.Values.Notifications.kBatteryLevelChange)
+                    bool batteryLevel = false;
+                    bool powerButtonPress = false;
+                    bool powerButtonRelease = false;
+                    bool powerState = false;
+                    bool scanButtonPress = false;
+                    bool scanButtonRelease = false;
+
+                    if (res.Result.IsSuccessful())
                     {
-                        batteryLevel = true;
+                        if ((res.Result.Property.Ulong & ICaptureProperty.Values.Notifications.kBatteryLevelChange)
+                            == ICaptureProperty.Values.Notifications.kBatteryLevelChange)
+                        {
+                            batteryLevel = true;
+                        }
+                        if ((res.Result.Property.Ulong & ICaptureProperty.Values.Notifications.kPowerButtonPress)
+                            == ICaptureProperty.Values.Notifications.kPowerButtonPress)
+                        {
+                            powerButtonPress = true;
+                        }
+                        if ((res.Result.Property.Ulong & ICaptureProperty.Values.Notifications.kPowerButtonRelease)
+                            == ICaptureProperty.Values.Notifications.kPowerButtonRelease)
+                        {
+                            powerButtonRelease = true;
+                        }
+                        if ((res.Result.Property.Ulong & ICaptureProperty.Values.Notifications.kPowerState)
+                            == ICaptureProperty.Values.Notifications.kPowerState)
+                        {
+                            powerState = true;
+                        }
+                        if ((res.Result.Property.Ulong & ICaptureProperty.Values.Notifications.kScanButtonPress)
+                            == ICaptureProperty.Values.Notifications.kScanButtonPress)
+                        {
+                            scanButtonPress = true;
+                        }
+                        if ((res.Result.Property.Ulong & ICaptureProperty.Values.Notifications.kScanButtonRelease)
+                            == ICaptureProperty.Values.Notifications.kScanButtonRelease)
+                        {
+                            scanButtonRelease = true;
+                        }
                     }
-                    if ((result.Property.Ulong & ICaptureProperty.Values.Notifications.kPowerButtonPress)
-                        == ICaptureProperty.Values.Notifications.kPowerButtonPress)
+                    return new NotificationsResult()
                     {
-                        powerButtonPress = true;
-                    }
-                    if ((result.Property.Ulong & ICaptureProperty.Values.Notifications.kPowerButtonRelease)
-                        == ICaptureProperty.Values.Notifications.kPowerButtonRelease)
-                    {
-                        powerButtonRelease = true;
-                    }
-                    if ((result.Property.Ulong & ICaptureProperty.Values.Notifications.kPowerState)
-                        == ICaptureProperty.Values.Notifications.kPowerState)
-                    {
-                        powerState = true;
-                    }
-                    if ((result.Property.Ulong & ICaptureProperty.Values.Notifications.kScanButtonPress)
-                        == ICaptureProperty.Values.Notifications.kScanButtonPress)
-                    {
-                        scanButtonPress = true;
-                    }
-                    if ((result.Property.Ulong & ICaptureProperty.Values.Notifications.kScanButtonRelease)
-                        == ICaptureProperty.Values.Notifications.kScanButtonRelease)
-                    {
-                        scanButtonRelease = true;
-                    }
-                }
-                return new NotificationsResult()
-                    {
-                        Result = result.Result,
+                        Result = res.Result.Result,
                         Notifications = new Notifications()
                         {
                             PowerState = powerState,
@@ -1624,6 +1865,8 @@ namespace SocketMobile
                             PowerButtonRelease = powerButtonRelease
                         }
                     };
+                });
+                return result;
             }
             /// <summary>
             /// contains the device notifications configuration
@@ -1676,7 +1919,7 @@ namespace SocketMobile
             /// <returns>
             /// a result code set to SktErrors.ESKT_NOERROR in case of success of to an error otherwise
             /// </returns>
-            public async Task<CaptureHelper.AsyncResult> SetNotificationsAsync(Notifications notifications)
+            public Task<CaptureHelper.AsyncResult> SetNotificationsAsync(Notifications notifications)
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kNotificationsDevice;
@@ -1706,8 +1949,12 @@ namespace SocketMobile
                 {
                     property.Ulong += ICaptureProperty.Values.Notifications.kScanButtonRelease;
                 }
-                PropertyResult result = await CaptureDevice.SetPropertyAsync(property);
-                return new CaptureHelper.AsyncResult() { Result = result.Result };
+                Task<PropertyResult> resultSetProperty = CaptureDevice.SetPropertyAsync(property);
+                Task<CaptureHelper.AsyncResult> result = resultSetProperty.ContinueWith(res =>
+                {
+                    return new CaptureHelper.AsyncResult() { Result = res.Result.Result };
+                });
+                return result;
             }
 
             /// <summary>
@@ -1717,34 +1964,39 @@ namespace SocketMobile
             /// the firmware version and a result code set to SktErrors.ESKT_NOERROR in case
             /// of success or to an error otherwise.
             /// </returns>
-            public async Task<CaptureHelper.VersionResult> GetFirmwareVersionAsync()
+            public Task<CaptureHelper.VersionResult> GetFirmwareVersionAsync()
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kVersionDevice;
                 property.Type = ICaptureProperty.Types.kNone;
-                PropertyResult result = await CaptureDevice.GetPropertyAsync(property);
-                CaptureHelper.VersionResult versionResult;
-                if (result.IsSuccessful())
+                Task<PropertyResult> resultGetProperty = CaptureDevice.GetPropertyAsync(property);
+                Task<CaptureHelper.VersionResult> result = resultGetProperty.ContinueWith(res =>
                 {
-                    versionResult = new CaptureHelper.VersionResult()
+                    CaptureHelper.VersionResult versionResult;
+
+                    if (res.Result.IsSuccessful())
                     {
-                        Result = result.Result,
-                        Major = result.Property.Version.dwMajor,
-                        Middle = result.Property.Version.dwMiddle,
-                        Minor = result.Property.Version.dwMinor,
-                        Build = result.Property.Version.dwBuild,
-                        Month = result.Property.Version.wMonth,
-                        Day = result.Property.Version.wDay,
-                        Year = result.Property.Version.wYear,
-                        Hour = result.Property.Version.wHour,
-                        Minute = result.Property.Version.wMinute
-                    };
-                }
-                else
-                {
-                    versionResult = new CaptureHelper.VersionResult() { Result = result.Result };
-                }
-                return versionResult;
+                        versionResult = new CaptureHelper.VersionResult()
+                        {
+                            Result = res.Result.Result,
+                            Major = res.Result.Property.Version.dwMajor,
+                            Middle = res.Result.Property.Version.dwMiddle,
+                            Minor = res.Result.Property.Version.dwMinor,
+                            Build = res.Result.Property.Version.dwBuild,
+                            Month = res.Result.Property.Version.wMonth,
+                            Day = res.Result.Property.Version.wDay,
+                            Year = res.Result.Property.Version.wYear,
+                            Hour = res.Result.Property.Version.wHour,
+                            Minute = res.Result.Property.Version.wMinute
+                        };
+                    }
+                    else
+                    {
+                        versionResult = new CaptureHelper.VersionResult() { Result = res.Result.Result };
+                    }
+                    return versionResult;
+                });
+                return result;
             }
 
             /// <summary>
@@ -1767,20 +2019,24 @@ namespace SocketMobile
             /// </summary>
             /// <param name="beep"> the value for the beep</param>
             /// <param name="led"> the value for the LED</param>
-            /// <param name="rumble"> the value to vibrate the scanner</param>
+            /// <param name="rumble"> the value to rumble the scanner</param>
             /// <returns></returns>
-            public async Task<CaptureHelper.AsyncResult> SetDataConfirmationAsync(int beep, int led, int rumble)
+            public Task<CaptureHelper.AsyncResult> SetDataConfirmationAsync(int beep, int led, int rumble)
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kDataConfirmationDevice;
                 property.Type = ICaptureProperty.Types.kUlong;
-                property.Ulong = Capture.Helper.DATACONFIRMATION(0,rumble,beep,led);
-                PropertyResult result = await CaptureDevice.SetPropertyAsync(property);
-                CaptureHelper.AsyncResult confirmationResult = 
-                    new CaptureHelper.AsyncResult() { Result = result.Result };
-                return confirmationResult;
+                property.Ulong = Capture.Helper.DATACONFIRMATION(0, rumble, beep, led);
+                Task<PropertyResult> resultSetProperty = CaptureDevice.SetPropertyAsync(property);
+                Task<CaptureHelper.AsyncResult> result = resultSetProperty.ContinueWith(res =>
+                {
+                    CaptureHelper.AsyncResult confirmationResult =
+                        new CaptureHelper.AsyncResult() { Result = res.Result.Result };
+                    return confirmationResult;
+                });
+                return result;
             }
-            
+
             /// <summary>
             /// configure the device when used with a stand.
             /// The stand configuration can be one of these values:
@@ -1794,15 +2050,19 @@ namespace SocketMobile
             /// a result code set to SktErrors.ESKT_NOERROR in case of success or to
             /// an error otherwise
             /// </returns>
-            public async Task<CaptureHelper.AsyncResult> SetStandConfigurationAsync(int standConfiguration)
+            public Task<CaptureHelper.AsyncResult> SetStandConfigurationAsync(int standConfiguration)
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kStandConfigDevice;
                 property.Type = ICaptureProperty.Types.kUlong;
                 property.Ulong = standConfiguration;
-                PropertyResult result = await CaptureDevice.SetPropertyAsync(property);
-                CaptureHelper.AsyncResult standConfigurationResult = new CaptureHelper.AsyncResult() { Result = result.Result };
-                return standConfigurationResult;
+                Task<PropertyResult> resultSetProperty = CaptureDevice.SetPropertyAsync(property);
+                Task<CaptureHelper.AsyncResult> result = resultSetProperty.ContinueWith(res =>
+                {
+                    CaptureHelper.AsyncResult standConfigurationResult = new CaptureHelper.AsyncResult() { Result = res.Result.Result };
+                    return standConfigurationResult;
+                });
+                return result;
             }
             /// <summary>
             /// contains the current stand configuration of the device
@@ -1828,15 +2088,19 @@ namespace SocketMobile
             /// the stand configuration and a result code set to SktErrors.ESKT_NOERROR or
             /// to an error otherwise
             /// </returns>
-            public async Task<StandConfigurationResult> GetStandConfigurationAsync()
+            public Task<StandConfigurationResult> GetStandConfigurationAsync()
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kStandConfigDevice;
                 property.Type = ICaptureProperty.Types.kNone;
-                PropertyResult result = await CaptureDevice.GetPropertyAsync(property);
-                StandConfigurationResult standConfigurationResult = 
-                    new StandConfigurationResult() { Result = result.Result, StandConfiguration=result.Property.Ulong};
-                return standConfigurationResult;
+                Task<PropertyResult> resultGetProperty = CaptureDevice.GetPropertyAsync(property);
+                Task<StandConfigurationResult> result = resultGetProperty.ContinueWith(res =>
+                {
+                    StandConfigurationResult standConfigurationResult =
+                        new StandConfigurationResult() { Result = res.Result.Result, StandConfiguration = res.Result.Property.Ulong };
+                    return standConfigurationResult;
+                });
+                return result;
             }
 
             /// <summary>
@@ -1844,14 +2108,15 @@ namespace SocketMobile
             /// </summary>
             /// <param name="beep">true to beep when decode occurs</param>
             /// <param name="flash">true to flash LED when decode occurs</param>
-            /// <param name="vibrate">true to vibrate when decode occurs</param>
+            /// <param name="rumble">true to rumble when decode occurs</param>
             /// <returns>
             /// a result code set to SktErrors.ESKT_NOERROR in case of success or
             /// to an error code otherwise
             /// </returns>
-            public async Task<CaptureHelper.AsyncResult> SetDecodeActionAsync( bool beep, bool flash, bool vibrate)
+            public Task<CaptureHelper.AsyncResult> SetDecodeActionAsync(bool beep, bool flash, bool rumble)
             {
                 byte decodeAction = ICaptureProperty.Values.LocalDecodeAction.kNone;
+
                 if (beep)
                 {
                     decodeAction |= ICaptureProperty.Values.LocalDecodeAction.kBeep;
@@ -1860,17 +2125,22 @@ namespace SocketMobile
                 {
                     decodeAction |= ICaptureProperty.Values.LocalDecodeAction.kFlash;
                 }
-                if (vibrate)
+                if (rumble)
                 {
                     decodeAction |= ICaptureProperty.Values.LocalDecodeAction.kRumble;
                 }
+
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kLocalDecodeActionDevice;
                 property.Type = ICaptureProperty.Types.kByte;
                 property.Byte = decodeAction;
-                PropertyResult result = await CaptureDevice.SetPropertyAsync(property);
-                CaptureHelper.AsyncResult standConfigurationResult = new CaptureHelper.AsyncResult() { Result = result.Result };
-                return standConfigurationResult;
+                Task<PropertyResult> resultSetProperty = CaptureDevice.SetPropertyAsync(property);
+                Task<CaptureHelper.AsyncResult> result = resultSetProperty.ContinueWith(res =>
+                {
+                    CaptureHelper.AsyncResult standConfigurationResult = new CaptureHelper.AsyncResult() { Result = res.Result.Result };
+                    return standConfigurationResult;
+                });
+                return result;
             }
             /// <summary>
             /// contains a bitwise value for the device decode action
@@ -1886,9 +2156,9 @@ namespace SocketMobile
                 /// </summary>
                 public bool Flash;
                 /// <summary>
-                /// Vibrate is true if the scanner vibrates on decode action
+                /// Rumble is true if the scanner vibrates on decode action
                 /// </summary>
-                public bool Vibrate;
+                public bool Rumble;
             }
 
             /// <summary>
@@ -1898,31 +2168,37 @@ namespace SocketMobile
             /// the device decode action and a result code set
             /// to SktErrors.ESKT_NOERROR or to an error code otherwise
             /// </returns>
-            public async Task<DecodeActionResult> GetDecodeActionAsync()
+            public Task<DecodeActionResult> GetDecodeActionAsync()
             {
-                bool beep = false, flash = false, vibrate = false;
+                bool beep = false, flash = false, rumble = false;
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kLocalDecodeActionDevice;
                 property.Type = ICaptureProperty.Types.kNone;
-                PropertyResult result = await CaptureDevice.GetPropertyAsync(property);
-                if((result.Property.Byte&ICaptureProperty.Values.LocalDecodeAction.kBeep)
-                    == ICaptureProperty.Values.LocalDecodeAction.kBeep)
+                Task<PropertyResult> resultGetProperty = CaptureDevice.GetPropertyAsync(property);
+                Task<DecodeActionResult> result = resultGetProperty.ContinueWith(res =>
                 {
-                    beep = true;
-                }
-                if ((result.Property.Byte & ICaptureProperty.Values.LocalDecodeAction.kFlash)
-                    == ICaptureProperty.Values.LocalDecodeAction.kFlash)
-                {
-                    flash = true;
-                }
-                if ((result.Property.Byte & ICaptureProperty.Values.LocalDecodeAction.kRumble)
-                    == ICaptureProperty.Values.LocalDecodeAction.kRumble)
-                {
-                    vibrate = true;
-                }
-                DecodeActionResult decodeActionResult =
-                    new DecodeActionResult() { Result = result.Result, Beep = beep, Flash = flash, Vibrate = vibrate };
-                return decodeActionResult;
+
+                    if ((res.Result.Property.Byte & ICaptureProperty.Values.LocalDecodeAction.kBeep)
+                        == ICaptureProperty.Values.LocalDecodeAction.kBeep)
+                    {
+                        beep = true;
+                    }
+                    if ((res.Result.Property.Byte & ICaptureProperty.Values.LocalDecodeAction.kFlash)
+                        == ICaptureProperty.Values.LocalDecodeAction.kFlash)
+                    {
+                        flash = true;
+                    }
+                    if ((res.Result.Property.Byte & ICaptureProperty.Values.LocalDecodeAction.kRumble)
+                        == ICaptureProperty.Values.LocalDecodeAction.kRumble)
+                    {
+                        rumble = true;
+                    }
+
+                    DecodeActionResult decodeActionResult =
+                        new DecodeActionResult() { Result = res.Result.Result, Beep = beep, Flash = flash, Rumble = rumble };
+                    return decodeActionResult;
+                });
+                return result;
             }
 
             /// <summary>
@@ -1933,19 +2209,20 @@ namespace SocketMobile
                 /// <summary>
                 /// contains the actual state of the symbology
                 /// </summary>
-                public enum eStatus { 
+                public enum eStatus
+                {
                     /// <summary>
                     /// the symbology is enabled
                     /// </summary>
-                    enable, 
+                    enable,
                     /// <summary>
                     /// the symbology is disabled
                     /// </summary>
-                    disable, 
+                    disable,
                     /// <summary>
                     /// the symbology is not supported on this device
                     /// </summary>
-                    notSupported 
+                    notSupported
                 };
                 /// <summary>
                 /// defines the last Symbology ID. This can be useful when requesting the
@@ -1976,46 +2253,50 @@ namespace SocketMobile
             /// the symbology information and a result code set to SktErrors.ESKT_NOERROR in 
             /// case of success or to an error code otherwise.
             /// </returns>
-            public async Task<SymbologyResult> GetSymbologyAsync(int SymbologyId)
+            public Task<SymbologyResult> GetSymbologyAsync(int SymbologyId)
             {
-                
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kSymbologyDevice;
                 property.Type = ICaptureProperty.Types.kSymbology;
                 property.Symbology.ID = SymbologyId;
                 property.Symbology.Flags = ICaptureSymbology.FlagsMask.kStatus;
-                PropertyResult result = await CaptureDevice.GetPropertyAsync(property);
-                SymbologyResult symbologyResult;
-                if (result.IsSuccessful())
+                Task<PropertyResult> resultGetProperty = CaptureDevice.GetPropertyAsync(property);
+                Task<SymbologyResult> result = resultGetProperty.ContinueWith(res =>
                 {
-                    SymbologyResult.eStatus symbologyStatus;
-                    switch(result.Property.Symbology.Status)
-                    {
-                        case ICaptureSymbology.StatusValues.kEnable:
-                            symbologyStatus = SymbologyResult.eStatus.enable;
-                            break;
-                        case ICaptureSymbology.StatusValues.kDisable:
-                            symbologyStatus = SymbologyResult.eStatus.disable;
-                            break;
-                        case ICaptureSymbology.StatusValues.kNotSupported:
-                        default:
-                            symbologyStatus = SymbologyResult.eStatus.notSupported;
-                            break;
+                    SymbologyResult symbologyResult;
 
-                    }
-                    symbologyResult = new SymbologyResult() 
+                    if (res.Result.IsSuccessful())
                     {
-                        Result = result.Result,
-                        ID = result.Property.Symbology.ID,
-                        Status = symbologyStatus,
-                        Name = result.Property.Symbology.Name
-                    };
-                }
-                else
-                {
-                    symbologyResult = new SymbologyResult() { Result = result.Result };
-                }
-                return symbologyResult;
+                        SymbologyResult.eStatus symbologyStatus;
+
+                        switch (res.Result.Property.Symbology.Status)
+                        {
+                            case ICaptureSymbology.StatusValues.kEnable:
+                                symbologyStatus = SymbologyResult.eStatus.enable;
+                                break;
+                            case ICaptureSymbology.StatusValues.kDisable:
+                                symbologyStatus = SymbologyResult.eStatus.disable;
+                                break;
+                            case ICaptureSymbology.StatusValues.kNotSupported:
+                            default:
+                                symbologyStatus = SymbologyResult.eStatus.notSupported;
+                                break;
+                        }
+                        symbologyResult = new SymbologyResult()
+                        {
+                            Result = res.Result.Result,
+                            ID = res.Result.Property.Symbology.ID,
+                            Status = symbologyStatus,
+                            Name = res.Result.Property.Symbology.Name
+                        };
+                    }
+                    else
+                    {
+                        symbologyResult = new SymbologyResult() { Result = res.Result.Result };
+                    }
+                    return symbologyResult;
+                });
+                return result;
             }
 
             /// <summary>
@@ -2028,7 +2309,7 @@ namespace SocketMobile
             /// a result code set to SktErrors.ESKT_NOERROR in case of success or
             /// to an error code otherwise
             /// </returns>
-            public async Task<CaptureHelper.AsyncResult> SetSymbologyAsync(int SymbologyId, bool enable)
+            public Task<CaptureHelper.AsyncResult> SetSymbologyAsync(int SymbologyId, bool enable)
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kSymbologyDevice;
@@ -2043,9 +2324,13 @@ namespace SocketMobile
                 {
                     property.Symbology.Status = ICaptureSymbology.StatusValues.kDisable;
                 }
-                PropertyResult result = await CaptureDevice.SetPropertyAsync(property);
-                CaptureHelper.AsyncResult resultSymbology = new CaptureHelper.AsyncResult() { Result = result.Result };
-                return resultSymbology;
+                Task<PropertyResult> resultSetProperty = CaptureDevice.SetPropertyAsync(property);
+                Task<CaptureHelper.AsyncResult> result = resultSetProperty.ContinueWith(res =>
+                {
+                    CaptureHelper.AsyncResult resultSymbology = new CaptureHelper.AsyncResult() { Result = res.Result.Result };
+                    return resultSymbology;
+                });
+                return result;
             }
 
             /// <summary>
@@ -2103,15 +2388,19 @@ namespace SocketMobile
                 return SetTriggerAsync(ICaptureProperty.Values.Trigger.kDisable);
             }
 
-            internal async Task<CaptureHelper.AsyncResult> SetTriggerAsync(byte trigger)
+            internal Task<CaptureHelper.AsyncResult> SetTriggerAsync(byte trigger)
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kTriggerDevice;
                 property.Type = ICaptureProperty.Types.kByte;
                 property.Byte = trigger;
-                PropertyResult result = await CaptureDevice.SetPropertyAsync(property);
-                CaptureHelper.AsyncResult resultTrigger = new CaptureHelper.AsyncResult() { Result = result.Result };
-                return resultTrigger;
+                Task<PropertyResult> resultSetProperty = CaptureDevice.SetPropertyAsync(property);
+                Task<CaptureHelper.AsyncResult> result = resultSetProperty.ContinueWith(res =>
+                {
+                    CaptureHelper.AsyncResult resultTrigger = new CaptureHelper.AsyncResult() { Result = res.Result.Result };
+                    return resultTrigger;
+                });
+                return result;
             }
             /// <summary>
             /// result contains the response to the GetDeviceSpecificAsync method
@@ -2132,19 +2421,21 @@ namespace SocketMobile
             /// the command response as byte array and a result code set to 
             /// SktErrors.ESKT_NOERROR in case of success or to an error code otherwise
             /// </returns>
-            public async Task<DeviceSpecificResult> GetDeviceSpecificAsync(byte[] specificCommand)
+            public Task<DeviceSpecificResult> GetDeviceSpecificAsync(byte[] specificCommand)
             {
                 ICaptureProperty property = SktClassFactory.createCaptureProperty();
                 property.ID = ICaptureProperty.PropId.kDeviceSpecific;
                 property.Type = ICaptureProperty.Types.kArray;
                 property.Array = specificCommand;
-                PropertyResult result = await CaptureDevice.GetPropertyAsync(property);
-                DeviceSpecificResult deviceSpecificResult =
-                    new DeviceSpecificResult() { Result = result.Result, DeviceSpecificData = result.Property.Array };
-                return deviceSpecificResult;
+                Task<PropertyResult> resultGetProperty = CaptureDevice.GetPropertyAsync(property);
+                Task<DeviceSpecificResult> result = resultGetProperty.ContinueWith(res =>
+                {
+                    DeviceSpecificResult deviceSpecificResult =
+                        new DeviceSpecificResult() { Result = res.Result.Result, DeviceSpecificData = res.Result.Property.Array };
+                    return deviceSpecificResult;
+                });
+                return result;
             }
-
-
         }
         #endregion
     }
