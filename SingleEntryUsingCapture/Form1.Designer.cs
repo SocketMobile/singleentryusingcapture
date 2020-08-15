@@ -29,6 +29,7 @@
         private void InitializeComponent()
         {
             this.components = new System.ComponentModel.Container();
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Form1));
             this.linkLabel1 = new System.Windows.Forms.LinkLabel();
             this.labelVersion = new System.Windows.Forms.Label();
             this.labelStatus = new System.Windows.Forms.Label();
@@ -45,7 +46,7 @@
             this.linkLabel1.Size = new System.Drawing.Size(135, 13);
             this.linkLabel1.TabIndex = 0;
             this.linkLabel1.TabStop = true;
-            this.linkLabel1.Text = "©2017 Socket Mobile, Inc.";
+            this.linkLabel1.Text = "©2020 Socket Mobile, Inc.";
             this.linkLabel1.LinkClicked += new System.Windows.Forms.LinkLabelLinkClickedEventHandler(this.linkLabel1_LinkClicked);
             // 
             // labelVersion
@@ -53,9 +54,9 @@
             this.labelVersion.AutoSize = true;
             this.labelVersion.Location = new System.Drawing.Point(194, 367);
             this.labelVersion.Name = "labelVersion";
-            this.labelVersion.Size = new System.Drawing.Size(44, 13);
+            this.labelVersion.Size = new System.Drawing.Size(45, 13);
             this.labelVersion.TabIndex = 1;
-            this.labelVersion.Text = "version:";
+            this.labelVersion.Text = "Version:";
             // 
             // labelStatus
             // 
@@ -81,7 +82,7 @@
             this.buttonClear.Name = "buttonClear";
             this.buttonClear.Size = new System.Drawing.Size(75, 23);
             this.buttonClear.TabIndex = 4;
-            this.buttonClear.Text = "Clear";
+            this.buttonClear.Text = "C&lear";
             this.buttonClear.UseVisualStyleBackColor = true;
             this.buttonClear.Click += new System.EventHandler(this.buttonClear_Click);
             // 
@@ -95,6 +96,7 @@
             this.Controls.Add(this.labelStatus);
             this.Controls.Add(this.labelVersion);
             this.Controls.Add(this.linkLabel1);
+            this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Name = "Form1";
             this.Text = "SingleEntry using Capture";
             this.ResumeLayout(false);

@@ -3,12 +3,13 @@
 /// Sample app that displays the scanner name
 /// and the decoded data into a list box
 /// 
-/// Follow the steps from 1 to
-/// ©2016 Socket Mobile, Inc.
+/// Follow the steps from 1 to 4
+/// ©2016-2020 Socket Mobile, Inc.
 
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Windows.Forms;
 
 //1- add the SocketMobile Capture namespace
@@ -24,8 +25,7 @@ namespace SingleEntryUsingCapture
         {
             InitializeComponent();
             // 3- instantiate and configure CaptureHelper
-            mCapture = new CaptureHelper();
-            mCapture.ContextForEvents = WindowsFormsSynchronizationContext.Current;
+            mCapture = new CaptureHelper {ContextForEvents = WindowsFormsSynchronizationContext.Current};
             mCapture.DeviceArrival += mCapture_DeviceArrival;
             mCapture.DeviceRemoval += mCapture_DeviceRemoval;
             mCapture.DecodedData += mCapture_DecodedData;
@@ -55,7 +55,9 @@ namespace SingleEntryUsingCapture
                 CaptureHelper.VersionResult version = await mCapture.GetCaptureVersionAsync();
                 if (version.IsSuccessful())
                 {
-                    labelVersion.Text = "Capture version: " + version.ToStringVersion();
+                    labelVersion.Text = $"Capture version: {version.ToStringVersion()}";
+
+                        ;
                 }
             }
             else
@@ -93,7 +95,7 @@ namespace SingleEntryUsingCapture
         // received when a barcode has been decoded correctly
         void mCapture_DecodedData(object sender, CaptureHelper.DecodedDataArgs e)
         {
-            string infoAndDecodedData = e.DecodedData.SymbologyName + ": " + e.DecodedData.DataToUTF8String;
+            string infoAndDecodedData = $"{e.DecodedData.SymbologyName}: {e.DecodedData.DataToUTF8String}";
             listBoxDecodedData.Items.Add(infoAndDecodedData);
         }
 
@@ -114,7 +116,7 @@ namespace SingleEntryUsingCapture
         #region UI Handlers
         private void linkLabel1_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
-            ProcessStartInfo sInfo = new ProcessStartInfo("http://www.socketmobile.com");
+            ProcessStartInfo sInfo = new ProcessStartInfo("https://www.socketmobile.com");
             Process.Start(sInfo);
         }
 
@@ -128,16 +130,16 @@ namespace SingleEntryUsingCapture
         private void UpdateStatus()
         {
             List<CaptureHelperDevice> devices = mCapture.GetDevicesList();
-            if (devices.Count == 0)
+            if (!devices.Any())
             {
                 labelStatus.Text = "no scanner connected";
             }
             else
             {
-                labelStatus.Text = "";
+                labelStatus.Text = string.Empty;
                 foreach (CaptureHelperDevice device in devices)
                 {
-                    if (labelStatus.Text.Length > 0)
+                    if (!string.IsNullOrEmpty((labelStatus.Text)))
                     {
                         labelStatus.Text += "\n";
                     }
