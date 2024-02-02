@@ -4,7 +4,7 @@
 /// and the decoded data into a list box
 /// 
 /// Follow the steps from 1 to 4
-/// ©2016-2020 Socket Mobile, Inc.
+/// ©2016-2024 Socket Mobile, Inc.
 
 using System;
 using System.Collections.Generic;
@@ -20,12 +20,12 @@ namespace SingleEntryUsingCapture
     public partial class Form1 : Form
     {
         //2- Create a CaptureHelper member
-        CaptureHelper mCapture;
+        readonly CaptureHelper mCapture;
         public Form1()
         {
             InitializeComponent();
             // 3- instantiate and configure CaptureHelper
-            mCapture = new CaptureHelper {ContextForEvents = WindowsFormsSynchronizationContext.Current};
+            mCapture = new CaptureHelper {ContextForEvents = System.Threading.SynchronizationContext.Current };
             mCapture.DeviceArrival += mCapture_DeviceArrival;
             mCapture.DeviceRemoval += mCapture_DeviceRemoval;
             mCapture.DecodedData += mCapture_DecodedData;
@@ -95,7 +95,7 @@ namespace SingleEntryUsingCapture
         // received when a barcode has been decoded correctly
         void mCapture_DecodedData(object sender, CaptureHelper.DecodedDataArgs e)
         {
-            string infoAndDecodedData = $"{e.DecodedData.SymbologyName}: {e.DecodedData.DataToUTF8String}";
+            string infoAndDecodedData = $"{e.DecodedData.DataSourceName}: {e.DecodedData.DataToUTF8String}";
             listBoxDecodedData.Items.Add(infoAndDecodedData);
         }
 
